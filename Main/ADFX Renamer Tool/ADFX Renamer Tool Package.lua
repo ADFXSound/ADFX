@@ -1,7 +1,0 @@
--- @description ADFX Renamer Tool
--- @version 1.6.1
--- @author ADFXSound
--- @metapackage
--- @provides
---   [main] ADFX_Helper; renamer tool.lua
---   [nomain] ADFX_O_LOGO.png

@@ -1,7 +1,0 @@
--- @description ADFX Strip Silence
--- @version 1.4.1
--- @author ADFXSound
--- @metapackage
--- @provides
---   [main] ADFX_Helper; strip silence.lua
---   [nomain] ADFX_O_LOGO.png

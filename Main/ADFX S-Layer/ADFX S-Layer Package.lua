@@ -1,7 +1,0 @@
--- @description ADFX S-Layer
--- @version 0.2.65
--- @author ADFXSound
--- @metapackage
--- @provides
---   [main] ADFX_S-Layer.lua
---   [nomain] ADFX_LOGO_BG_BANNER_CLEAR.png
