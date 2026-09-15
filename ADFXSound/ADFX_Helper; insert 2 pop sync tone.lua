@@ -23,7 +23,7 @@ platform = reaper.GetOS() --determine OS for pathing seperators / or \
     end
 
 function Main()
-path = reaper.GetResourcePath() .. slash .. 'Scripts' .. slash .. 'ADFX' .. slash .. 'Media' .. slash .. 'TwoPop1KhzTone.wav'
+path = reaper.GetResourcePath() .. slash .. 'Scripts' .. slash .. 'ADFXSound' .. slash .. 'Media' .. slash .. 'TwoPop1KhzTone.wav'
 
   if reaper.file_exists( path ) then
     reaper.InsertMedia( path, 0 )
