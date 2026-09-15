@@ -3,8 +3,6 @@ name: ReaPack validation
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - index.xml
 
 permissions:
   contents: read
