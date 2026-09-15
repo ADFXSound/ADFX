@@ -1,4 +1,6 @@
 desc:ADFX S-Layer Trigger Bridge v0.2.7
+author: ADFXSound
+version: 1.0.0
 // ADFX_SLAYER_BRIDGE_LAYERS=16
 // ADFX_SLAYER_BRIDGE_BOOTSAFE=1
 // Managed by ADFX S-Layer. One instance lives on each playback lane.
