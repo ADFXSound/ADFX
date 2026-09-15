@@ -324,8 +324,6 @@
         <source file="ADFXHelper Sound Design Pad/Bridge/Start Wacom Bridge.bat">https://raw.githubusercontent.com/ADFXSound/ADFXSound/master/Main/ADFXHelper%20Sound%20Design%20Pad/Bridge/Start%20Wacom%20Bridge.bat</source>
       </version>
     </reapack>
-  </category>
-  <category name="ADFX">
     <reapack name="ADFX Effects.lua" type="script" desc="ADFX Effects">
       <version name="1.0.1" author="ADFXSound">
         <source type="effect" file="ADFXHelper; pitch shifter.jsfx">https://raw.githubusercontent.com/ADFXSound/ADFXSound/master/Main/Effects/ADFXHelper;%20pitch%20shifter.jsfx</source>
