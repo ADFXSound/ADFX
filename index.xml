@@ -1,68 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
 <index version="1" name="ADFXSound" commit="bcec339f2f9b72d9d19092fadd3bd3c7fe82f926">
-  <category name="Main">
+  <category name="ADFX">
     <reapack name="ADFX_Helper; copy render directory to clipboard.lua" type="script" desc="ADFX_Helper; copy render directory to clipboard">
       <version name="1.0" author="ADFXSound" time="2022-06-14T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Helper%3B%20copy%20render%20directory%20to%20clipboard.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Helper%3B%20copy%20render%20directory%20to%20clipboard.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; cubase style split tool reset.lua" type="script" desc="ADFX_Helper; cubase style split tool reset">
       <version name="1.0" author="ADFXSound" time="2022-08-11T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Helper_%20cubase%20style%20split%20tool%20reset.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Helper_%20cubase%20style%20split%20tool%20reset.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; cubase style split tool.lua" type="script" desc="ADFX_Helper; cubase style split tool">
       <version name="1.0" author="ADFXSound" time="2022-08-11T17:48:14Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/raw/bcec339f2f9b72d9d19092fadd3bd3c7fe82f926/Main/ADFX_Helper_%20cubase%20style%20split%20tool.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/raw/bcec339f2f9b72d9d19092fadd3bd3c7fe82f926/ADFX/ADFX_Helper_%20cubase%20style%20split%20tool.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; insert 2 pop sync tone.lua" type="script" desc="ADFX_Helper; insert 2 pop sync tone">
       <version name="1.0" author="ADFXSound" time="2022-06-20T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Helper%3B%20insert%202%20pop%20sync%20tone.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Helper%3B%20insert%202%20pop%20sync%20tone.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; make variations from markered takes.lua" type="script" desc="ADFX_Helper; make variations from markered takes">
       <version name="1.1" author="ADFXSound" time="2022-07-12T14:11:55Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Helper%3B%20make%20variations%20from%20markered%20takes.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Helper%3B%20make%20variations%20from%20markered%20takes.lua</source>
       </version>
       <version name="1.0" author="ADFX" time="2022-07-13T11:53:43Z">
         <changelog><![CDATA[+ Initial Release]]></changelog>
-        <source main="main">https://github.com/ADearing01/ADFXSound/raw/5906463a32d8405bd59772cc975e0383a25bd212/Main/ADFX_Helper;%20make%20variations%20from%20markered%20takes.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/raw/5906463a32d8405bd59772cc975e0383a25bd212/ADFX/ADFX_Helper;%20make%20variations%20from%20markered%20takes.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; set repeat off.lua" type="script" desc="ADFX_Helper; set repeat off">
       <version name="1.0" author="ADFXSound" time="2022-06-14T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Helper%3B%20set%20repeat%20off.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Helper%3B%20set%20repeat%20off.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; set repeat on.lua" type="script" desc="ADFX_Helper; set repeat on">
       <version name="1.0" author="ADFXSound" time="2022-06-14T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Helper%3B%20set%20repeat%20on.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Helper%3B%20set%20repeat%20on.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; take name from clipboard paste.lua" type="script" desc="ADFX_Helper; take name from clipboard paste">
       <version name="1.0" author="ADFXSound" time="2022-07-12T14:11:55Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/raw/aa96dd7e50aa929bbea8bb5bd489da8ba0b0cb4a/Main/ADFX_Helper;%20take%20name%20from%20clipboard%20paste.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/raw/aa96dd7e50aa929bbea8bb5bd489da8ba0b0cb4a/ADFX/ADFX_Helper;%20take%20name%20from%20clipboard%20paste.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; take name to clipboard copy.lua" type="script" desc="ADFX_Helper; take name from clipboard copy">
       <version name="1.0" author="ADFXSound" time="2022-07-12T14:11:55Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/raw/aa96dd7e50aa929bbea8bb5bd489da8ba0b0cb4a/Main/ADFX_Helper;%20take%20name%20to%20clipboard%20copy.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/raw/aa96dd7e50aa929bbea8bb5bd489da8ba0b0cb4a/ADFX/ADFX_Helper;%20take%20name%20to%20clipboard%20copy.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Item; reset selected items volume to default.lua" type="script" desc="ADFX_Helper; reset selected items volume to default">
       <version name="1.0" author="ADFXSound" time="2022-06-14T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Item%3B%20reset%20selected%20items%20volume%20to%20default.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Item%3B%20reset%20selected%20items%20volume%20to%20default.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Item; select all items on track.lua" type="script" desc="ADFX_Helper; select all items on track">
       <version name="1.0" author="ADFXSound" time="2022-06-14T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Item%3B%20select%20all%20items%20on%20track.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Item%3B%20select%20all%20items%20on%20track.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Item; togglemute.lua" type="script" desc="ADFX_Helper; togglemute">
       <version name="1.0" author="ADFXSound" time="2022-06-14T22:01:32Z">
-        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/Main/ADFX_Item%3B%20togglemute.lua</source>
+        <source main="main">https://github.com/ADearing01/ADFXSound/blob/master/ADFX/ADFX_Item%3B%20togglemute.lua</source>
       </version>
     </reapack>
   </category>

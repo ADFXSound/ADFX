@@ -1,0 +1,674 @@
+// NoIndex: true
+desc:ADFXHelper; pitch shifter
+// ADFXHelper Pitch Shifter v1.2.5
+// Self-contained JSFX DSP + custom native GUI.
+// Original implementation inspired by the public control set of Steinberg PitchShifter.
+// No Steinberg code or proprietary DSP is used.
+
+// Leading '-' hides REAPER's generic slider rows while retaining automation/preset support.
+slider1:0<-24,24,0.01>-Pitch L (st)
+slider2:0<-24,24,0.01>-Formant L (st)
+slider3:1<0,1,1{Off,On}>-Preserve L
+slider4:20<0,100,0.1>-Drive L (%)
+slider5:1<0,3,1{Off,Tape,Tube,Dist}>-Saturation L
+slider6:0<-24,24,0.01>-Pitch R (st)
+slider7:0<-24,24,0.01>-Formant R (st)
+slider8:1<0,1,1{Off,On}>-Preserve R
+slider9:20<0,100,0.1>-Drive R (%)
+slider10:1<0,3,1{Off,Tape,Tube,Dist}>-Saturation R
+slider11:0<0,1,1{Linked,Unlinked}>-Channels
+slider12:100<0,100,0.1>-Mix (%)
+slider13:0<-24,12,0.1>-Output (dB)
+slider14:0<0,1,1{Free,Semitones}>-Pitch Edit
+slider15:55<20,120,1>-Grain Size (ms)
+slider16:0<0,1,1{Normal,Copy L to R}>-Copy L -> R
+slider17:1<0,1,1{2 Grain,4 Grain}>-Smooth Grains
+slider18:1<0,1,1{Manual,Auto}>-Auto Grain
+slider19:0<0,1,1{Normal,Parallel}>-Parallel Flange
+slider20:0<0,1,1{Free,Follow Pitch}>-Formant Link
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:gfx_hz=60
+
+@init
+maxbuf = 262144;
+bufL = 0;
+bufR = maxbuf;
+parBufL = maxbuf*2;
+parBufR = maxbuf*3;
+writePos = 0;
+parWritePos = 0;
+phaseL = phaseR = 0;
+parPhaseL = parPhaseR = 0;
+lastCopy = 0;
+lpL1=lpR1=0;
+// PRESERVE spectral-envelope followers (3-band approximation).
+presLoL=presLoR=0;
+presHiLP_L=presHiLP_R=0;
+ui_active = 0;
+ui_lastcap = 0;
+ui_needslider = 0;
+edit_id = 0;
+// Dezippered pitch/grain state. These values slew toward AUTO targets so
+// changing pitch cannot teleport the granular read heads and create clicks.
+grainMsSmL = grainMsSmR = 120;
+smoothSmL = smoothSmR = 0;
+ratioSmL = ratioSmR = 1;
+bypassBlendL = bypassBlendR = 0;
+
+function clamp(x,lo,hi) ( x < lo ? lo : x > hi ? hi : x; );
+function db2gain(db) ( exp(db * 0.11512925464970229); );
+function adfx_tanh(x) local(z) (
+  x = clamp(x,-10,10);
+  z = exp(2*x);
+  (z-1)/(z+1);
+);
+function sat_tape(x,d) local(g,y) (
+  g = 1 + d*7;
+  y = adfx_tanh(x*g);
+  y / (1 + d*1.6);
+);
+function sat_tube(x,d) local(g,y) (
+  g = 1 + d*9;
+  y = adfx_tanh(x*g + 0.08*d*(x*g)^2);
+  y / (1 + d*1.8);
+);
+function sat_dist(x,d) local(g,y) (
+  g = 1 + d*15;
+  y = clamp(x*g,-1,1);
+  y / (1 + d*2.5);
+);
+function interp(base,pos,size) local(i0,i1,f) (
+  pos < 0 ? pos += size;
+  pos >= size ? pos -= size;
+  i0 = floor(pos);
+  i1 = i0 + 1; i1 >= size ? i1 = 0;
+  f = pos - i0;
+  base[i0]*(1-f) + base[i1]*f;
+);
+function win(p) ( 0.5 - 0.5*cos(2*$pi*p); );
+
+function update_dsp() local(pR,fR,mixR,tL,tR,grainMsL,grainMsR) (
+  // Read the live slider values every audio block. Custom @gfx controls can
+  // change sliders without REAPER immediately re-entering @slider.
+  pR = slider11 < 0.5 ? slider1 : slider6;
+  fL = slider20 >= 0.5 ? slider1 : slider2;
+  fR = slider20 >= 0.5 ? pR : (slider11 < 0.5 ? slider2 : slider7);
+
+  // AUTO GRAIN is tuned by pitch region rather than using one continuous
+  // short-to-long grain curve. Listening tests showed that small shifts such as
+  // +/-1 st sound substantially more natural with a long 120 ms window and the
+  // 2-grain engine, while large shifts still benefit from the 4-grain engine.
+  // Keep the long window throughout AUTO and progressively introduce 4-grain
+  // smoothing only after the small-shift region. Exact 0 remains the transparent
+  // direct path below, so the long window adds no coloration at zero pitch.
+  tL = abs(slider1);
+  tR = abs(pR);
+  slider18 >= 0.5 ? (
+    grainMsL = 120;
+    grainMsR = 120;
+    // +/-0..2 st: pure 2-grain (matches the natural manual setting).
+    // +/-2..12 st: smoothly morph into 4-grain; +/-12 and beyond = full 4-grain.
+    smoothL = clamp((tL-2)/10,0,1);
+    smoothR = clamp((tR-2)/10,0,1);
+    // Ease the transition so the 2-grain character is retained longer at
+    // moderate shifts, while still arriving fully at 4-grain by +/-12 st.
+    smoothL *= smoothL;
+    smoothR *= smoothR;
+  ) : (
+    grainMsL = slider15;
+    grainMsR = slider15;
+    smoothL = slider17 >= 0.5;
+    smoothR = slider17 >= 0.5;
+  );
+  // Store TARGETS here. The audible parameters are slewed per-sample below.
+  // AUTO now keeps a 120 ms window and morphs only the grain-count blend
+  // (2 grain near small shifts -> 4 grain by +/-12 st), while dezippering
+  // transitions to prevent read-head discontinuities.
+  grainMsTargetL = grainMsL;
+  grainMsTargetR = grainMsR;
+  smoothTargetL = smoothL;
+  smoothTargetR = smoothR;
+  ratioTargetL = pow(2, slider1/12);
+  ratioTargetR = pow(2, pR/12);
+  bypassTargetL = abs(slider1) < 0.0001 ? 0 : 1;
+  bypassTargetR = abs(pR) < 0.0001 ? 0 : 1;
+  // Grain/smoothing changes use ~45 ms dezippering; pitch ratio uses ~8 ms.
+  // Zero-pitch bypass crossfades in ~12 ms so leaving/arriving at 0 cannot click.
+  grainSlew = exp(-1/max(1,0.045*srate));
+  ratioSlew = exp(-1/max(1,0.008*srate));
+  bypassSlew = exp(-1/max(1,0.012*srate));
+  autoGrainDisplay = grainMsTargetL;
+  autoSmoothDisplay = smoothTargetL;
+  mixAmt = slider12*0.01;
+  // Normal mode: MIX is the ordinary dry/wet blend for the primary pitch shifter.
+  // Parallel mode is intentionally post-process: the primary pitch/formant/drive result
+  // becomes the BASE signal, then a fixed -1 cent parallel copy is blended against it.
+  // This means enabling PARALLEL never pulls the signal back toward the unpitched input.
+  wet = mixAmt;
+  dry = 1-wet;
+
+  parRatio = pow(2,-0.01/12);
+  parWinSamps = floor(80*0.001*srate);
+  parWinSamps = clamp(parWinSamps,256,min(maxbuf-4,floor(srate*0.12)));
+  parInc = (1-parRatio)/parWinSamps;
+  outg = db2gain(slider13);
+  formRatioL = pow(2, fL/12);
+  formRatioR = pow(2, fR/12);
+  baseFc = 1800;
+  fcL = clamp(baseFc*formRatioL,120,12000);
+  fcR = clamp(baseFc*formRatioR,120,12000);
+  aL = exp(-2*$pi*fcL/srate);
+  aR = exp(-2*$pi*fcR/srate);
+
+  // PRESERVE uses a broad 3-band spectral-envelope compensation rather than
+  // the old single high/low gain correction. The crossovers stay fixed so
+  // pitch can move while the broad tonal envelope remains more stable.
+  presALo = exp(-2*$pi*450/srate);
+  presAHi = exp(-2*$pi*3500/srate);
+);
+
+@slider
+slider20 >= 0.5 ? (
+  slider2=slider1;
+  slider7=slider11 < 0.5 ? slider1 : slider6;
+);
+slider14 >= 0.5 ? (
+  // Round to the nearest semitone without biasing negative exact values downward.
+  // v1.2.0 used floor(x-0.5) for negatives, so -12 could become -13.
+  slider1 = floor(slider1 + 0.5);
+  slider6 = floor(slider6 + 0.5);
+);
+slider11 < 0.5 ? (
+  slider6=slider1; slider7=slider2; slider8=slider3; slider9=slider4; slider10=slider5;
+);
+slider16 >= 0.5 && lastCopy < 0.5 ? (
+  slider6=slider1; slider7=slider2; slider8=slider3; slider9=slider4; slider10=slider5;
+  slider16=0;
+);
+lastCopy=slider16;
+update_dsp();
+
+@block
+update_dsp();
+
+@sample
+xL=spl0; xR=spl1;
+bufL[writePos]=xL;
+bufR[writePos]=xR;
+
+// Smooth automation-sensitive granular parameters every sample.
+// The AUTO target still follows pitch exactly; only the transition is dezippered.
+grainMsSmL = grainMsTargetL + (grainMsSmL-grainMsTargetL)*grainSlew;
+grainMsSmR = grainMsTargetR + (grainMsSmR-grainMsTargetR)*grainSlew;
+smoothSmL = smoothTargetL + (smoothSmL-smoothTargetL)*grainSlew;
+smoothSmR = smoothTargetR + (smoothSmR-smoothTargetR)*grainSlew;
+ratioSmL = ratioTargetL + (ratioSmL-ratioTargetL)*ratioSlew;
+ratioSmR = ratioTargetR + (ratioSmR-ratioTargetR)*ratioSlew;
+bypassBlendL = bypassTargetL + (bypassBlendL-bypassTargetL)*bypassSlew;
+bypassBlendR = bypassTargetR + (bypassBlendR-bypassTargetR)*bypassSlew;
+
+winSampsL = clamp(grainMsSmL*0.001*srate,256,min(maxbuf-4,floor(srate*0.12)));
+winSampsR = clamp(grainMsSmR*0.001*srate,256,min(maxbuf-4,floor(srate*0.12)));
+ratioL = ratioSmL; ratioR = ratioSmR;
+incL = (1-ratioL)/winSampsL;
+incR = (1-ratioR)/winSampsR;
+smoothL = smoothSmL; smoothR = smoothSmR;
+
+p1L = phaseL;
+p1R = phaseR;
+
+// Calculate the legacy 2-grain result.
+p2L=p1L+0.5; p2L>=1 ? p2L-=1;
+p2R=p1R+0.5; p2R>=1 ? p2R-=1;
+r1L=writePos-p1L*winSampsL; r2L=writePos-p2L*winSampsL;
+r1R=writePos-p1R*winSampsR; r2R=writePos-p2R*winSampsR;
+s1L=interp(bufL,r1L,maxbuf); s2L=interp(bufL,r2L,maxbuf);
+s1R=interp(bufR,r1R,maxbuf); s2R=interp(bufR,r2R,maxbuf);
+w1L=win(p1L); w2L=win(p2L); norm2L=max(0.0001,w1L+w2L);
+w1R=win(p1R); w2R=win(p2R); norm2R=max(0.0001,w1R+w2R);
+y2L=(s1L*w1L+s2L*w2L)/norm2L;
+y2R=(s1R*w1R+s2R*w2R)/norm2R;
+
+// Calculate the 4-grain result only when it can contribute.
+(smoothL > 0 || smoothR > 0) ? (
+  p2qL=p1L+0.25; p2qL>=1 ? p2qL-=1;
+  p3L=p1L+0.50; p3L>=1 ? p3L-=1;
+  p4L=p1L+0.75; p4L>=1 ? p4L-=1;
+  p2qR=p1R+0.25; p2qR>=1 ? p2qR-=1;
+  p3R=p1R+0.50; p3R>=1 ? p3R-=1;
+  p4R=p1R+0.75; p4R>=1 ? p4R-=1;
+
+  r1qL=writePos-p1L*winSampsL; r2qL=writePos-p2qL*winSampsL; r3L=writePos-p3L*winSampsL; r4L=writePos-p4L*winSampsL;
+  r1qR=writePos-p1R*winSampsR; r2qR=writePos-p2qR*winSampsR; r3R=writePos-p3R*winSampsR; r4R=writePos-p4R*winSampsR;
+  s1qL=interp(bufL,r1qL,maxbuf); s2qL=interp(bufL,r2qL,maxbuf); s3L=interp(bufL,r3L,maxbuf); s4L=interp(bufL,r4L,maxbuf);
+  s1qR=interp(bufR,r1qR,maxbuf); s2qR=interp(bufR,r2qR,maxbuf); s3R=interp(bufR,r3R,maxbuf); s4R=interp(bufR,r4R,maxbuf);
+  w1qL=win(p1L); w2qL=win(p2qL); w3L=win(p3L); w4L=win(p4L); norm4L=max(0.0001,w1qL+w2qL+w3L+w4L);
+  w1qR=win(p1R); w2qR=win(p2qR); w3R=win(p3R); w4R=win(p4R); norm4R=max(0.0001,w1qR+w2qR+w3R+w4R);
+  y4L=(s1qL*w1qL+s2qL*w2qL+s3L*w3L+s4L*w4L)/norm4L;
+  y4R=(s1qR*w1qR+s2qR*w2qR+s3R*w3R+s4R*w4R)/norm4R;
+
+  // AUTO mode continuously morphs from the 2-grain sound at 0 st to
+  // the 4-grain sound at +/-12 st. Manual mode makes smoothL/R 0 or 1.
+  yL = y2L*(1-smoothL) + y4L*smoothL;
+  yR = y2R*(1-smoothR) + y4R*smoothR;
+) : (
+  yL=y2L; yR=y2R;
+);
+
+// Transparent zero-pitch path, now click-free. At exact 0 the settled result
+// is still 100% direct; entering/leaving the granular engine is crossfaded.
+yL = xL*(1-bypassBlendL) + yL*bypassBlendL;
+yR = xR*(1-bypassBlendR) + yR*bypassBlendR;
+phaseL += incL; phaseL -= floor(phaseL);
+phaseR += incR; phaseR -= floor(phaseR);
+// PRESERVE: stabilize the broad spectral envelope across pitch changes.
+// A low/mid/high split follows the processed signal. Downward shifts receive
+// a gentle high-band lift / low-band trim; upward shifts receive the inverse.
+// This is substantially more envelope-like than the previous single comp gain
+// while remaining lightweight and artifact-resistant in JSFX.
+presLoL = (1-presALo)*yL + presALo*presLoL;
+presLoR = (1-presALo)*yR + presALo*presLoR;
+presHiLP_L = (1-presAHi)*yL + presAHi*presHiLP_L;
+presHiLP_R = (1-presAHi)*yR + presAHi*presHiLP_R;
+presMidL = presHiLP_L-presLoL; presHighL = yL-presHiLP_L;
+presMidR = presHiLP_R-presLoR; presHighR = yR-presHiLP_R;
+
+// ratioSm is dezippered, so the preserve compensation also moves smoothly.
+presDepthL = clamp(-12*log(max(0.000001,ratioL))/log(2)/12,-2,2);
+presDepthR = clamp(-12*log(max(0.000001,ratioR))/log(2)/12,-2,2);
+slider3 >= 0.5 ? (
+  presLG=db2gain(-1.5*presDepthL);
+  presMG=db2gain( 0.5*presDepthL);
+  presHG=db2gain( 3.0*presDepthL);
+  yL=presLoL*presLG + presMidL*presMG + presHighL*presHG;
+);
+slider8 >= 0.5 ? (
+  presLG=db2gain(-1.5*presDepthR);
+  presMG=db2gain( 0.5*presDepthR);
+  presHG=db2gain( 3.0*presDepthR);
+  yR=presLoR*presLG + presMidR*presMG + presHighR*presHG;
+);
+
+// User FORMANT remains an independent creative control after PRESERVE.
+lpL1 = (1-aL)*yL + aL*lpL1;
+lpR1 = (1-aR)*yR + aR*lpR1;
+hiL = yL-lpL1; hiR=yR-lpR1;
+formGainL = pow(2,slider2/24);
+formGainR = pow(2,slider7/24);
+yL = lpL1/max(0.4,formGainL) + hiL*formGainL;
+yR = lpR1/max(0.4,formGainR) + hiR*formGainR;
+D=slider4*0.01;
+slider5==1 ? yL=sat_tape(yL,D) : slider5==2 ? yL=sat_tube(yL,D) : slider5==3 ? yL=sat_dist(yL,D);
+D=slider9*0.01;
+slider10==1 ? yR=sat_tape(yR,D) : slider10==2 ? yR=sat_tube(yR,D) : slider10==3 ? yR=sat_dist(yR,D);
+// Final routing. PARALLEL is a post-pitch effect: first preserve the complete processed
+// result, then create a -1 cent copy of THAT result and blend it in.
+slider19 >= 0.5 ? (
+  parBufL[parWritePos]=yL;
+  parBufR[parWritePos]=yR;
+
+  pp1L=parPhaseL; pp2L=pp1L+0.5; pp2L>=1 ? pp2L-=1;
+  pp1R=parPhaseR; pp2R=pp1R+0.5; pp2R>=1 ? pp2R-=1;
+  pr1L=parWritePos-pp1L*parWinSamps; pr2L=parWritePos-pp2L*parWinSamps;
+  pr1R=parWritePos-pp1R*parWinSamps; pr2R=parWritePos-pp2R*parWinSamps;
+  ps1L=interp(parBufL,pr1L,maxbuf); ps2L=interp(parBufL,pr2L,maxbuf);
+  ps1R=interp(parBufR,pr1R,maxbuf); ps2R=interp(parBufR,pr2R,maxbuf);
+  pw1L=win(pp1L); pw2L=win(pp2L); pnormL=max(0.0001,pw1L+pw2L);
+  pw1R=win(pp1R); pw2R=win(pp2R); pnormR=max(0.0001,pw1R+pw2R);
+  pyL=(ps1L*pw1L+ps2L*pw2L)/pnormL;
+  pyR=(ps1R*pw1R+ps2R*pw2R)/pnormR;
+
+  // MIX = parallel-return amount. 0% is the primary processed signal unchanged;
+  // 100% is an equal blend of primary processed + its -1 cent parallel copy.
+  parNorm=1+mixAmt;
+  spl0=((yL + pyL*mixAmt)/parNorm)*outg;
+  spl1=((yR + pyR*mixAmt)/parNorm)*outg;
+
+  parPhaseL += parInc; parPhaseL -= floor(parPhaseL);
+  parPhaseR += parInc; parPhaseR -= floor(parPhaseR);
+  parWritePos += 1; parWritePos>=maxbuf ? parWritePos=0;
+) : (
+  spl0=(xL*dry+yL*wet)*outg;
+  spl1=(xR*dry+yR*wet)*outg;
+);
+writePos += 1; writePos>=maxbuf ? writePos=0;
+
+// -------------------------- GUI --------------------------
+@gfx 760 612
+
+function C(r,g,b,a) ( gfx_set(r,g,b,a); );
+function inside(x,y,w,h) ( mouse_x>=x && mouse_x<=x+w && mouse_y>=y && mouse_y<=y+h; );
+function txt(x,y,s) ( gfx_x=x; gfx_y=y; gfx_drawstr(s); );
+function panel(x,y,w,h) (
+  C(.075,.085,.105,1); gfx_rect(x,y,w,h,1);
+  C(.16,.18,.22,1); gfx_rect(x,y,w,1,1); gfx_rect(x,y+h-1,w,1,1);
+);
+function button(id,x,y,w,h,label,on) local(hov,clicked) (
+  hov=inside(x,y,w,h);
+  C(on ? .08 : hov ? .16 : .11, on ? .52 : hov ? .20 : .13, on ? .67 : hov ? .24 : .16,1);
+  gfx_rect(x,y,w,h,1);
+  C(on ? .20 : .28,on ? .82 : .31,on ? 1 : .36,1); gfx_rect(x,y,w,1,1); gfx_rect(x,y+h-1,w,1,1);
+  gfx_setfont(2,"Arial",12,'b'); C(.9,.93,.96,1);
+  gfx_measurestr(label,tw,th); txt(x+(w-tw)/2,y+(h-th)/2,label);
+  clicked = ui_press && hov;
+  clicked;
+);
+function hslider(id,x,y,w,val,lo,hi,step) local(hov,t,newv,pos) (
+  hov=inside(x,y,w,20);
+  C(.12,.13,.15,1); gfx_rect(x,y+8,w,5,1);
+  pos=clamp((val-lo)/(hi-lo),0,1);
+  C(.12,.68,.86,1); gfx_rect(x,y+8,w*pos,5,1);
+  C(hov||ui_active==id ? .88 : .7,.9,.94,1); gfx_circle(x+w*pos,y+10,6,1,1);
+  ui_press && hov ? ui_active=id;
+  ui_active==id && ui_down ? (
+    t=clamp((mouse_x-x)/w,0,1);
+    newv=lo+t*(hi-lo);
+    step>0 ? newv=floor(newv/step+0.5)*step;
+    val=clamp(newv,lo,hi);
+  );
+  val;
+);
+
+function hslider_ro(x,y,w,val,lo,hi) local(pos) (
+  C(.09,.10,.12,1); gfx_rect(x,y+8,w,5,1);
+  pos=clamp((val-lo)/(hi-lo),0,1);
+  C(.10,.46,.58,1); gfx_rect(x,y+8,w*pos,5,1);
+  C(.48,.56,.60,1); gfx_circle(x+w*pos,y+10,6,1,1);
+);
+
+function icon_chain(x,y,s,on) local(r,g,b) (
+  on ? (r=.85;g=.95;b=1;) : (r=.62;g=.68;b=.74;);
+  C(r,g,b,1);
+  gfx_circle(x+s*.32,y+s*.50,s*.18,0,1);
+  gfx_circle(x+s*.68,y+s*.50,s*.18,0,1);
+  gfx_line(x+s*.43,y+s*.43,x+s*.57,y+s*.43,1);
+  gfx_line(x+s*.43,y+s*.57,x+s*.57,y+s*.57,1);
+);
+function icon_arrow(x,y,s) (
+  C(.78,.86,.92,1);
+  gfx_line(x,y+s*.5,x+s*.72,y+s*.5,1);
+  gfx_line(x+s*.52,y+s*.28,x+s*.74,y+s*.5,1);
+  gfx_line(x+s*.52,y+s*.72,x+s*.74,y+s*.5,1);
+);
+function icon_semitone(x,y,s,on) (
+  C(on?.9:.72,on?.95:.78,on?1:.84,1);
+  gfx_line(x+s*.24,y+s*.20,x+s*.24,y+s*.80,1);
+  gfx_line(x+s*.10,y+s*.50,x+s*.38,y+s*.50,1);
+  gfx_line(x+s*.66,y+s*.34,x+s*.90,y+s*.34,1);
+  gfx_line(x+s*.78,y+s*.22,x+s*.78,y+s*.46,1);
+);
+function icon_lock(x,y,s,on) (
+  C(on?.86:.68,on?.94:.74,on?1:.80,1);
+  gfx_rect(x+s*.20,y+s*.48,s*.60,s*.38,0);
+  gfx_arc(x+s*.50,y+s*.47,s*.20,$pi,2*$pi,1);
+);
+function icon_power(x,y,s,on) (
+  C(on?.9:.68,on?.95:.74,on?1:.80,1);
+  gfx_arc(x+s*.5,y+s*.54,s*.30,-$pi*.78,$pi*.78,1);
+  gfx_line(x+s*.5,y+s*.08,x+s*.5,y+s*.48,1);
+);
+function icon_reels(x,y,s,on) (
+  C(on?.9:.68,on?.95:.74,on?1:.80,1);
+  gfx_circle(x+s*.32,y+s*.50,s*.16,0,1);
+  gfx_circle(x+s*.68,y+s*.50,s*.16,0,1);
+  gfx_line(x+s*.32,y+s*.68,x+s*.68,y+s*.68,1);
+);
+function icon_tube(x,y,s,on) (
+  C(on?.9:.68,on?.95:.74,on?1:.80,1);
+  gfx_rect(x+s*.30,y+s*.18,s*.40,s*.58,0);
+  gfx_line(x+s*.36,y+s*.82,x+s*.64,y+s*.82,1);
+  gfx_line(x+s*.40,y+s*.28,x+s*.60,y+s*.66,1);
+);
+function icon_bolt(x,y,s,on) (
+  C(on?1:.72,on?.93:.76,on?.72:.80,1);
+  gfx_line(x+s*.58,y+s*.10,x+s*.30,y+s*.50,1);
+  gfx_line(x+s*.30,y+s*.50,x+s*.54,y+s*.50,1);
+  gfx_line(x+s*.54,y+s*.50,x+s*.36,y+s*.90,1);
+);
+
+function sectiontitle(x,y,s) (
+  gfx_setfont(2,"Arial",13,'b'); C(.30,.80,1,1); txt(x,y,s);
+);
+function smalllabel(x,y,s) (
+  gfx_setfont(1,"Arial",11); C(.65,.69,.75,1); txt(x,y,s);
+);
+function valuebox(x,y,w,val,dec,suffix) (
+  C(.055,.06,.072,1); gfx_rect(x,y,w,20,1);
+  C(.25,.28,.33,1); gfx_rect(x,y,w,1,1);
+  gfx_setfont(1,"Arial",11); C(.92,.94,.96,1);
+  gfx_x=x+6; gfx_y=y+3; gfx_drawnumber(val,dec); suffix != 0 ? gfx_drawstr(suffix);
+);
+
+// Click a numeric value box, type a value, then press Enter. Esc cancels.
+// Used for pitch, formant, drive, mix, output and manual grain size.
+// FORMANT LINK mirrors each channel's pitch into its formant value in real time.
+function numbox(id,x,y,w,val,dec,suffix,lo,hi,step,enabled) local(hov,ch,nv,nlen,tw,th) (
+  hov=inside(x,y,w,20);
+  C(edit_id==id ? .075 : .055, edit_id==id ? .12 : .06, edit_id==id ? .15 : .072,1); gfx_rect(x,y,w,20,1);
+  C(edit_id==id ? .20 : .25, edit_id==id ? .82 : .28, edit_id==id ? 1 : .33,1); gfx_rect(x,y,w,1,1);
+  gfx_setfont(1,"Arial",11);
+
+  edit_id==id ? (
+    // Entering a numeric field selects the entire existing value. The first typed
+    // character replaces it, matching normal text-field behavior.
+    edit_select_all ? (
+      gfx_measurestr(#editbuf,tw,th);
+      C(.12,.46,.62,.55); gfx_rect(x+4,y+2,min(w-8,tw+6),16,1);
+    );
+    C(enabled ? .96 : .48,enabled ? .97 : .52,enabled ? 1 : .56,1);
+    gfx_x=x+6; gfx_y=y+3; gfx_drawstr(#editbuf);
+    enabled ? (
+      ch=gfx_getchar();
+      ch==27 ? (edit_id=0; edit_select_all=0;);
+      ch==8 ? (
+        edit_select_all ? (str_setlen(#editbuf,0); edit_select_all=0;) : (
+          nlen=strlen(#editbuf); nlen>0 ? str_setlen(#editbuf,nlen-1);
+        );
+      );
+      ch==13 ? (
+        match("%f",#editbuf,nv) ? (
+          step>0 ? nv=floor(nv/step+0.5)*step;
+          val=clamp(nv,lo,hi);
+          ui_needslider=1;
+        );
+        edit_id=0; edit_select_all=0;
+      );
+      ((ch>=48 && ch<=57) || ch==45 || ch==43 || ch==46) ? (
+        edit_select_all ? (str_setlen(#editbuf,0); edit_select_all=0;);
+        sprintf(#editchar,"%c",ch); strcat(#editbuf,#editchar);
+      );
+    );
+  ) : (
+    C(enabled ? .92 : .48,enabled ? .94 : .52,enabled ? .96 : .56,1);
+    gfx_x=x+6; gfx_y=y+3; gfx_drawnumber(val,dec); suffix != 0 ? gfx_drawstr(suffix);
+    enabled && ui_press && hov ? (
+      edit_id=id;
+      edit_select_all=1;
+      dec==0 ? sprintf(#editbuf,"%.0f",val) : dec==1 ? sprintf(#editbuf,"%.1f",val) : sprintf(#editbuf,"%.2f",val);
+    );
+  );
+  val;
+);
+
+// mouse state
+ui_down = mouse_cap&1;
+ui_press = ui_down && !(ui_lastcap&1);
+ui_release = !ui_down && (ui_lastcap&1);
+ui_release ? ui_active=0;
+
+// background
+C(.035,.04,.05,1); gfx_rect(0,0,gfx_w,gfx_h,1);
+C(.05,.055,.07,1); gfx_rect(0,0,gfx_w,76,1);
+// Header branding. Keep all three PNG files beside this JSFX.
+brand_loaded == 0 ? (
+  brand_img = gfx_loadimg(1, "ADFX_LOGO_BG_BANNER_CLEAR.png");
+  brand_loaded = 1;
+);
+brand_img >= 0 ? (
+  gfx_x = 20; gfx_y = 23; gfx_blit(brand_img,0.14,0);
+) : (
+  // Fallback if the ADFX banner asset is missing.
+  gfx_setfont(3,"Arial",19,'b'); C(1,.72,.10,1); txt(20,27,"ADFX SOUND");
+);
+
+// Custom PITCH SHIFTER artwork replaces the old text product title.
+pitchlogo_loaded == 0 ? (
+  pitchlogo_img = gfx_loadimg(2, "ADFX_PITCH_SHIFTER_LOGO.png");
+  pitchlogo_loaded = 1;
+);
+pitchlogo_img >= 0 ? (
+  gfx_x = 210; gfx_y = 2; gfx_blit(pitchlogo_img,0.325,0);
+) : (
+  // Fallback if the custom artwork is missing.
+  gfx_setfont(3,"Arial",19,'b'); C(.20,.82,1,1); txt(216,27,"| PITCH SHIFTER");
+);
+
+gfx_setfont(1,"Arial",10); C(.5,.55,.62,1); // Crown icon (loaded from the same folder as this JSFX)
+logo_loaded == 0 ? (
+  logo_img = gfx_loadimg(0, "ADFX_O_LOGO.png");
+  logo_loaded = 1;
+);
+logo_img >= 0 ? (
+  gfx_x = gfx_w-47; gfx_y = 22; gfx_blit(logo_img,0.40,0);
+);
+gfx_setfont(1,"Arial",10); C(.5,.55,.62,1); txt(gfx_w-116,31,"v1.2.5");
+
+// global buttons
+button(100,20,90,88,27,"LINK",slider11<.5) ? (slider11 = slider11<.5 ? 1 : 0; ui_needslider=1;);
+button(101,116,90,102,27,"COPY L > R",0) ? (
+  slider6=slider1; slider7=slider2; slider8=slider3; slider9=slider4; slider10=slider5; ui_needslider=1;
+);
+button(102,226,90,112,27,"SEMITONES",slider14>=.5) ? (slider14 = slider14<.5 ? 1 : 0; ui_needslider=1;);
+icon_chain(29,96,15,slider11<.5);
+icon_arrow(124,96,15);
+icon_semitone(234,96,15,slider14>=.5);
+
+// column panels
+margin=20; gap=14; colw=(gfx_w-margin*2-gap)/2;
+lx=margin; rx=margin+colw+gap; top=130;
+panel(lx,top,colw,350); panel(rx,top,colw,350);
+sectiontitle(lx+16,top+14,"LEFT"); sectiontitle(rx+16,top+14,"RIGHT");
+
+// LEFT pitch
+smalllabel(lx+16,top+48,"PITCH");
+old=slider1; slider1=hslider(1,lx+16,top+66,colw-112,slider1,-24,24,slider14>=.5?1:.01);
+slider1=numbox(201,lx+colw-88,top+66,72,slider1,2," st",-24,24,slider14>=.5?1:.01,1); slider1!=old ? ui_needslider=1;
+button(109,lx+16,top+94,48,22,"-24",0) ? (slider1=-24;ui_needslider=1;);
+button(110,lx+70,top+94,48,22,"-12",0) ? (slider1=-12;ui_needslider=1;);
+button(111,lx+124,top+94,48,22,"0",0) ? (slider1=0;ui_needslider=1;);
+button(112,lx+178,top+94,48,22,"+12",0) ? (slider1=12;ui_needslider=1;);
+button(114,lx+232,top+94,48,22,"+24",0) ? (slider1=24;ui_needslider=1;);
+
+smalllabel(lx+16,top+132,"FORMANT");
+button(150,lx+214,top+126,92,20,"LINK PITCH",slider20>=.5) ? (slider20=slider20<.5?1:0; ui_needslider=1;);
+old=slider2;
+slider20>=.5 ? slider2=slider1 : slider2=hslider(2,lx+16,top+150,colw-112,slider2,-24,24,.01);
+slider2=numbox(202,lx+colw-88,top+150,72,slider2,2," st",-24,24,.01,slider20<.5); slider2!=old ? ui_needslider=1;
+slider20<.5 && button(115,lx+16,top+178,48,22,"-24",0) ? (slider2=-24;ui_needslider=1;);
+slider20<.5 && button(116,lx+70,top+178,48,22,"-12",0) ? (slider2=-12;ui_needslider=1;);
+slider20<.5 && button(117,lx+124,top+178,48,22,"0",0) ? (slider2=0;ui_needslider=1;);
+slider20<.5 && button(118,lx+178,top+178,48,22,"+12",0) ? (slider2=12;ui_needslider=1;);
+slider20<.5 && button(119,lx+232,top+178,48,22,"+24",0) ? (slider2=24;ui_needslider=1;);
+button(113,lx+16,top+206,112,22,"PRESERVE",slider3>=.5) ? (slider3=slider3<.5?1:0;ui_needslider=1;);
+icon_lock(lx+22,top+209,15,slider3>=.5);
+
+smalllabel(lx+16,top+244,"DRIVE");
+old=slider4; slider4=hslider(4,lx+16,top+262,colw-112,slider4,0,100,.1);
+slider4=numbox(204,lx+colw-88,top+262,72,slider4,1," %",0,100,.1,1); slider4!=old ? ui_needslider=1;
+smalllabel(lx+16,top+295,"SATURATION");
+button(120,lx+16,top+314,58,22,"OFF",slider5==0) ? (slider5=0;ui_needslider=1;);
+button(121,lx+80,top+314,58,22,"TAPE",slider5==1) ? (slider5=1;ui_needslider=1;);
+button(122,lx+144,top+314,58,22,"TUBE",slider5==2) ? (slider5=2;ui_needslider=1;);
+button(123,lx+208,top+314,58,22,"DIST",slider5==3) ? (slider5=3;ui_needslider=1;);
+icon_power(lx+19,top+318,11,slider5==0); icon_reels(lx+83,top+318,11,slider5==1); icon_tube(lx+147,top+318,11,slider5==2); icon_bolt(lx+211,top+318,11,slider5==3);
+
+// RIGHT pitch
+smalllabel(rx+16,top+48,"PITCH");
+old=slider6; slider11<.5 ? slider6=slider1 : slider6=hslider(6,rx+16,top+66,colw-112,slider6,-24,24,slider14>=.5?1:.01);
+slider6=numbox(206,rx+colw-88,top+66,72,slider6,2," st",-24,24,slider14>=.5?1:.01,slider11>=.5); slider6!=old ? ui_needslider=1;
+slider11>=.5 && button(129,rx+16,top+94,48,22,"-24",0) ? (slider6=-24;ui_needslider=1;);
+slider11>=.5 && button(130,rx+70,top+94,48,22,"-12",0) ? (slider6=-12;ui_needslider=1;);
+slider11>=.5 && button(131,rx+124,top+94,48,22,"0",0) ? (slider6=0;ui_needslider=1;);
+slider11>=.5 && button(132,rx+178,top+94,48,22,"+12",0) ? (slider6=12;ui_needslider=1;);
+slider11>=.5 && button(134,rx+232,top+94,48,22,"+24",0) ? (slider6=24;ui_needslider=1;);
+
+smalllabel(rx+16,top+132,"FORMANT");
+old=slider7;
+slider20>=.5 ? slider7=(slider11<.5 ? slider1 : slider6) : slider11<.5 ? slider7=slider2 : slider7=hslider(7,rx+16,top+150,colw-112,slider7,-24,24,.01);
+slider7=numbox(207,rx+colw-88,top+150,72,slider7,2," st",-24,24,.01,slider11>=.5 && slider20<.5); slider7!=old ? ui_needslider=1;
+slider11>=.5 && slider20<.5 && button(135,rx+16,top+178,48,22,"-24",0) ? (slider7=-24;ui_needslider=1;);
+slider11>=.5 && slider20<.5 && button(136,rx+70,top+178,48,22,"-12",0) ? (slider7=-12;ui_needslider=1;);
+slider11>=.5 && slider20<.5 && button(137,rx+124,top+178,48,22,"0",0) ? (slider7=0;ui_needslider=1;);
+slider11>=.5 && slider20<.5 && button(138,rx+178,top+178,48,22,"+12",0) ? (slider7=12;ui_needslider=1;);
+slider11>=.5 && slider20<.5 && button(139,rx+232,top+178,48,22,"+24",0) ? (slider7=24;ui_needslider=1;);
+slider11>=.5 && button(133,rx+16,top+206,112,22,"PRESERVE",slider8>=.5) ? (slider8=slider8<.5?1:0;ui_needslider=1;);
+slider11>=.5 ? icon_lock(rx+22,top+209,15,slider8>=.5);
+
+smalllabel(rx+16,top+244,"DRIVE");
+old=slider9; slider11<.5 ? slider9=slider4 : slider9=hslider(9,rx+16,top+262,colw-112,slider9,0,100,.1);
+slider9=numbox(209,rx+colw-88,top+262,72,slider9,1," %",0,100,.1,slider11>=.5); slider9!=old ? ui_needslider=1;
+smalllabel(rx+16,top+295,"SATURATION");
+slider11>=.5 && button(140,rx+16,top+314,58,22,"OFF",slider10==0) ? (slider10=0;ui_needslider=1;);
+slider11>=.5 && button(141,rx+80,top+314,58,22,"TAPE",slider10==1) ? (slider10=1;ui_needslider=1;);
+slider11>=.5 && button(142,rx+144,top+314,58,22,"TUBE",slider10==2) ? (slider10=2;ui_needslider=1;);
+slider11>=.5 && button(143,rx+208,top+314,58,22,"DIST",slider10==3) ? (slider10=3;ui_needslider=1;);
+slider11>=.5 ? (icon_power(rx+19,top+318,11,slider10==0); icon_reels(rx+83,top+318,11,slider10==1); icon_tube(rx+147,top+318,11,slider10==2); icon_bolt(rx+211,top+318,11,slider10==3););
+
+// When linked, the RIGHT channel is display-only. Dim the whole panel so it is
+// immediately obvious that LEFT is driving both channels.
+slider11<.5 ? (
+  C(.035,.04,.05,.68); gfx_rect(rx+1,top+1,colw-2,348,1);
+  gfx_setfont(2,"Arial",12,'b'); C(.43,.46,.50,1);
+  gfx_measurestr("LINKED TO LEFT",tw,th); txt(rx+colw-tw-16,top+14,"LINKED TO LEFT");
+);
+
+// Enforce link immediately in GUI
+slider20>=.5 ? (slider2=slider1; slider7=slider11<.5 ? slider1 : slider6;);
+slider11<.5 ? (slider6=slider1;slider7=slider2;slider8=slider3;slider9=slider4;slider10=slider5;);
+
+// global bottom panel
+by=494; panel(20,by,gfx_w-40,96);
+smalllabel(36,by+14,"MIX"); old=slider12; slider12=hslider(12,36,by+32,104,slider12,0,100,.1); slider12=numbox(212,146,by+32,58,slider12,1," %",0,100,.1,1); slider12!=old?ui_needslider=1;
+smalllabel(216,by+14,"OUTPUT"); old=slider13; slider13=hslider(13,216,by+32,82,slider13,-24,12,.1); slider13=numbox(213,304,by+32,60,slider13,1," dB",-24,12,.1,1); slider13!=old?ui_needslider=1;
+
+smalllabel(376,by+14,"PARALLEL"); button(162,376,by+32,72,22,"PARALLEL",slider19>=.5) ? (slider19=slider19<.5?1:0;ui_needslider=1;);
+
+smalllabel(460,by+14,"AUTO"); button(161,460,by+32,48,22,"AUTO",slider18>=.5) ? (slider18=slider18<.5?1:0;ui_needslider=1;);
+
+smalllabel(520,by+14,"GRAIN SIZE");
+slider18>=.5 ? (
+  hslider_ro(520,by+32,58,autoGrainDisplay,20,120);
+  valuebox(584,by+32,50,autoGrainDisplay,0," ms");
+) : (
+  old=slider15; slider15=hslider(15,520,by+32,58,slider15,20,120,1);
+  slider15=numbox(215,584,by+32,50,slider15,0," ms",20,120,1,1); slider15!=old?ui_needslider=1;
+);
+
+smalllabel(646,by+14,"SMOOTH");
+slider18>=.5 ? (
+  // Display the current automatic 2->4 grain interpolation amount.
+  C(.055,.06,.072,1); gfx_rect(646,by+32,78,22,1);
+  C(.25,.28,.33,1); gfx_rect(646,by+32,78,1,1);
+  gfx_setfont(2,"Arial",11,'b'); C(.50,.58,.62,1);
+  gfx_measurestr("AUTO",tw,th); txt(646+(78-tw)/2,by+32+(22-th)/2,"AUTO");
+) : (
+  button(160,646,by+32,78,22,"4 GRAIN",slider17>=.5) ? (slider17=slider17<.5?1:0;ui_needslider=1;);
+);
+gfx_setfont(1,"Arial",10); C(.42,.46,.52,1);
+slider19>=.5 ? txt(36,by+68,"PARALLEL: post-pitch -1 cent copy. MIX blends it with the processed signal, preserving the main pitch.")
+                : txt(36,by+68,"AUTO: click-free slew: 0 st = transparent / 41 ms / 2 grain; +/-12 st = 120 ms / 4 grain.");
+
+// propagate GUI changes into the DSP/host immediately
+ui_needslider ? (
+  slider_automate(slider1); slider_automate(slider2); slider_automate(slider3); slider_automate(slider4); slider_automate(slider5);
+  slider_automate(slider6); slider_automate(slider7); slider_automate(slider8); slider_automate(slider9); slider_automate(slider10);
+  slider_automate(slider11); slider_automate(slider12); slider_automate(slider13); slider_automate(slider14); slider_automate(slider15); slider_automate(slider17); slider_automate(slider18); slider_automate(slider19); slider_automate(slider20);
+  sliderchange(-1);
+  ui_needslider=0;
+);
+ui_lastcap=mouse_cap;

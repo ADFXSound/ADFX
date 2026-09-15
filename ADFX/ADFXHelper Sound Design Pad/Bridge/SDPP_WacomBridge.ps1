@@ -1,12 +1,15 @@
-# Sound Design Paint Pad v0.4.5 - Windows Pen Bridge
+# Sound Design Paint Pad v0.4.6 - Windows Pen Bridge
 # Receives native Windows WM_POINTER pen packets from a nearly invisible overlay
 # positioned over the REAPER Paint Pad. Writes normalized telemetry to %TEMP%.
+# Hidden-window friendly: PID + heartbeat files let the pad detect a live process
+# even when the pen is idle.
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $code = @'
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Drawing;
 using System.Runtime.InteropServices;
@@ -34,6 +37,10 @@ public class SDPPPenOverlay : Form
 
     const int WS_EX_TOOLWINDOW  = 0x00000080;
     const int WS_EX_NOACTIVATE  = 0x08000000;
+
+    const int SM_DIGITIZER = 94;
+    const int NID_INTEGRATED_PEN = 0x04;
+    const int NID_EXTERNAL_PEN = 0x08;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT {
@@ -81,21 +88,48 @@ public class SDPPPenOverlay : Form
     [DllImport("user32.dll")]
     static extern bool SetProcessDPIAware();
 
+    [DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int nIndex);
+
     string temp = Path.GetTempPath();
     string statePath;
     string rectPath;
     string stopPath;
+    string pidPath;
+    string infoPath;
+    string heartbeatPath;
     long seq = 0;
+    long heartbeat = 0;
+    double lastX = 0.5;
+    double lastY = 0.5;
+    double lastPressure = 0.0;
+    double lastTiltX = 0.0;
+    double lastTiltY = 0.0;
+    int lastTip = 0;
+    int lastB1 = 0;
+    int lastB2 = 0;
+    int lastEraser = 0;
     Timer rectTimer;
+    DateTime ignoreStopUntil;
 
     public SDPPPenOverlay()
     {
         SetProcessDPIAware();
 
-        statePath = Path.Combine(temp, "SDPP_WacomBridge_state.txt");
-        rectPath  = Path.Combine(temp, "SDPP_WacomBridge_rect.txt");
-        stopPath  = Path.Combine(temp, "SDPP_WacomBridge_stop.txt");
+        statePath     = Path.Combine(temp, "SDPP_WacomBridge_state.txt");
+        rectPath      = Path.Combine(temp, "SDPP_WacomBridge_rect.txt");
+        stopPath      = Path.Combine(temp, "SDPP_WacomBridge_stop.txt");
+        pidPath       = Path.Combine(temp, "SDPP_WacomBridge_pid.txt");
+        infoPath      = Path.Combine(temp, "SDPP_WacomBridge_info.txt");
+        heartbeatPath = Path.Combine(temp, "SDPP_WacomBridge_heartbeat.txt");
         try { if (File.Exists(stopPath)) File.Delete(stopPath); } catch { }
+        // Reloading the REAPER script can fire the previous instance's atexit
+        // stop file after this process has already started.
+        ignoreStopUntil = DateTime.UtcNow.AddSeconds(1.5);
+
+        WritePid();
+        WritePenInfo();
+        WriteHeartbeat(false);
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -115,6 +149,7 @@ public class SDPPPenOverlay : Form
         rectTimer.Tick += (s,e) => {
             CheckStopRequest();
             UpdateRect();
+            WriteHeartbeat(false);
         };
         rectTimer.Start();
     }
@@ -135,18 +170,66 @@ public class SDPPPenOverlay : Form
         RegisterPointerInputTarget(this.Handle, PT_PEN);
     }
 
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        CleanupFiles();
+        base.OnFormClosed(e);
+    }
+
     static uint PointerIdFromWParam(IntPtr wParam)
     {
         long v = wParam.ToInt64();
         return (uint)(v & 0xFFFF);
     }
 
+    static bool ProbePenDevice()
+    {
+        int digitizer = GetSystemMetrics(SM_DIGITIZER);
+        return (digitizer & (NID_INTEGRATED_PEN | NID_EXTERNAL_PEN)) != 0;
+    }
+
+    void WritePid()
+    {
+        try {
+            File.WriteAllText(pidPath, Process.GetCurrentProcess().Id.ToString());
+        } catch { }
+    }
+
+    void WritePenInfo()
+    {
+        try {
+            File.WriteAllText(infoPath, ProbePenDevice() ? "pen=1" : "pen=0");
+        } catch { }
+    }
+
+    void WriteHeartbeat(bool bumpSeq)
+    {
+        if (bumpSeq) seq++;
+        heartbeat++;
+
+        string line = String.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "{0},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6},{7},{8},{9},{10}",
+            seq, lastX, lastY, lastPressure, lastTiltX, lastTiltY,
+            lastTip, lastB1, lastB2, lastEraser, heartbeat);
+
+        try { File.WriteAllText(statePath, line); } catch { }
+        try { File.WriteAllText(heartbeatPath, heartbeat.ToString()); } catch { }
+    }
+
+    void CleanupFiles()
+    {
+        try { if (File.Exists(pidPath)) File.Delete(pidPath); } catch { }
+        try { if (File.Exists(heartbeatPath)) File.Delete(heartbeatPath); } catch { }
+    }
+
     void CheckStopRequest()
     {
         try {
+            if (DateTime.UtcNow < ignoreStopUntil) return;
             if (File.Exists(stopPath)) {
                 File.Delete(stopPath);
-                rectTimer.Stop();
+                if (rectTimer != null) rectTimer.Stop();
+                CleanupFiles();
                 this.Close();
                 Application.ExitThread();
             }
@@ -223,16 +306,17 @@ public class SDPPPenOverlay : Form
         bool eraser = ((pi.penFlags & PEN_FLAG_ERASER) != 0) ||
                       ((pi.penFlags & PEN_FLAG_INVERTED) != 0);
 
-        seq++;
+        lastX = x;
+        lastY = y;
+        lastPressure = pressure;
+        lastTiltX = tx;
+        lastTiltY = ty;
+        lastTip = tip ? 1 : 0;
+        lastB1 = b1 ? 1 : 0;
+        lastB2 = b2 ? 1 : 0;
+        lastEraser = eraser ? 1 : 0;
 
-        string line = String.Format(System.Globalization.CultureInfo.InvariantCulture,
-            "{0},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6},{7},{8},{9}",
-            seq, x, y, pressure, tx, ty,
-            tip ? 1 : 0, b1 ? 1 : 0, b2 ? 1 : 0, eraser ? 1 : 0);
-
-        try {
-            File.WriteAllText(statePath, line);
-        } catch { }
+        WriteHeartbeat(true);
     }
 
     protected override void WndProc(ref Message m)
@@ -264,12 +348,40 @@ public static class SDPPBridgeMain
 }
 '@
 
-Add-Type -TypeDefinition $code -ReferencedAssemblies System.Windows.Forms,System.Drawing
+$dll = Join-Path $env:TEMP "SDPP_WacomBridge_v047.dll"
+$loaded = $false
+if (Test-Path -LiteralPath $dll) {
+    try {
+        Add-Type -Path $dll -ErrorAction Stop
+        $loaded = $true
+    } catch {
+        $loaded = $false
+    }
+}
 
-Write-Host ""
-Write-Host "Sound Design Paint Pad v0.4.5 - Wacom/Windows Pen Bridge"
-Write-Host "Keep this window open while using REAPER."
-Write-Host "Close this PowerShell window to stop the bridge."
-Write-Host ""
+if (-not $loaded) {
+    try {
+        Add-Type -TypeDefinition $code `
+            -ReferencedAssemblies System.Windows.Forms,System.Drawing `
+            -OutputAssembly $dll `
+            -OutputType Library `
+            -ErrorAction Stop
+        $loaded = $true
+    } catch {
+        $loaded = $false
+        if (Test-Path -LiteralPath $dll) {
+            try {
+                Add-Type -Path $dll -ErrorAction Stop
+                $loaded = $true
+            } catch {
+                $loaded = $false
+            }
+        }
+    }
+}
+
+if (-not $loaded) {
+    Add-Type -TypeDefinition $code -ReferencedAssemblies System.Windows.Forms,System.Drawing
+}
 
 [SDPPBridgeMain]::Run()

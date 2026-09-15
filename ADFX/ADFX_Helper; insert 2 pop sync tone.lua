@@ -6,6 +6,7 @@
  * Repository URI: https://raw.githubusercontent.com/ADearing01/ADFXSound/master/index.xml
  * REAPER: 6.61
  * Version: 1.0
+ * @provides [nomain] Media/TwoPop1KhzTone.wav
 --]]
 
 --[[
@@ -22,7 +23,7 @@ platform = reaper.GetOS() --determine OS for pathing seperators / or \
     end
 
 function Main()
-path = reaper.GetResourcePath() .. slash .. 'Scripts' .. slash .. 'ADFXSound' .. slash .. 'Main' .. slash .. 'Media' .. slash .. 'TwoPop1KhzTone.wav'
+path = reaper.GetResourcePath() .. slash .. 'Scripts' .. slash .. 'ADFX' .. slash .. 'Media' .. slash .. 'TwoPop1KhzTone.wav'
 
   if reaper.file_exists( path ) then
     reaper.InsertMedia( path, 0 )
