@@ -1,10 +1,7 @@
---[[
- * ReaScript Name: ADFX Renamer Tool
- * About: Installs the ADFX Renamer Tool and its logo.
- * Author: ADFXSound
- * Version: 1.6
- * @metapackage
- * @provides
- *   [main] ADFX_Helper; renamer tool.lua
- *   [nomain] ADFX_O_LOGO.png
---]]
+-- @description ADFX Renamer Tool
+-- @version 1.6.1
+-- @author ADFXSound
+-- @metapackage
+-- @provides
+--   [main] ADFX_Helper; renamer tool.luac > ADFX_Helper; renamer tool.lua
+--   [nomain] ADFX_O_LOGO.png

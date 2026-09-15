@@ -1,13 +1,10 @@
---[[
- * ReaScript Name: ADFX Recorder Modules
- * About: Shared recorder modules used by ADFX tools. Installs into Scripts/ADFX/Modules.
- * Author: ADFXSound
- * Version: 1.0.0
- * @metapackage
- * @provides
- *   [nomain] Modules/ADFX_Recorder.lua
- *   [nomain] Modules/ADFX_Recorder_Buffer.lua
- *   [nomain] Modules/ADFX_Recorder_Engine.lua
- *   [nomain] Modules/ADFX_Recorder_SlotIn.lua
- *   [nomain] Modules/ADFX_Recorder_Util.lua
---]]
+-- @description ADFX Recorder Modules
+-- @version 1.0.1
+-- @author ADFXSound
+-- @metapackage
+-- @provides
+--   [nomain] Modules/ADFX_Recorder.luac > Modules/ADFX_Recorder.lua
+--   [nomain] Modules/ADFX_Recorder_Buffer.luac > Modules/ADFX_Recorder_Buffer.lua
+--   [nomain] Modules/ADFX_Recorder_Engine.luac > Modules/ADFX_Recorder_Engine.lua
+--   [nomain] Modules/ADFX_Recorder_SlotIn.luac > Modules/ADFX_Recorder_SlotIn.lua
+--   [nomain] Modules/ADFX_Recorder_Util.luac > Modules/ADFX_Recorder_Util.lua
