@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; auto align selected items to marker
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; align selected items to markers
  * About: Automatically aligns selected items to markers while preventing overlap

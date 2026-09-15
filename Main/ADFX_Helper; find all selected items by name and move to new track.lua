@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; find all selected items by name and move to new track
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Script: Move Selected Items with Specific Name to New Track
 -- Description: Locates all selected items containing a specific search term
 --              and moves them to a newly created track named after that term.

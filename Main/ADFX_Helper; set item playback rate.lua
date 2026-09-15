@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; set item playback rate
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Set Playback Rate and Stretch Selected Items with Auto-Spacing
 -- This script prompts for a playback rate, applies it to all selected items,
 -- and automatically spaces them out to prevent overlapping when stretched

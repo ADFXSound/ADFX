@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; send selected items to pro tools
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Minimal Send to Pro Tools Script
 -- This script exports selected items as WAV files for Pro Tools
 

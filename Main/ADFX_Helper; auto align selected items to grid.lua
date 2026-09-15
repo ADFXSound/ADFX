@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; auto align selected items to grid
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; align selected items to grid
  * About: Automatically aligns selected items to consecutive downbeats (1, 2, 3, etc.) when possible, or skips to next available downbeat if item length requires it

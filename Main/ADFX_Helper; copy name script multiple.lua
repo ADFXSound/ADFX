@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; copy name script multiple
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; copy name script multiple
  * About: -- Copies the name from the first selected item to other selected items -- 

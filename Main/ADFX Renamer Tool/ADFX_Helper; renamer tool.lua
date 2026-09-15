@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; renamer tool
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; renamer tool
  * About: A quick way to rename with or with sequential numbers, simple 

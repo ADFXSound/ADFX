@@ -1,3 +1,7 @@
+-- @description ADFX_Item; Select items in selected tracks from cursor to end of project
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
    * Тест только на windows  /  Test only on windows.
    * Отчет об ошибке: Если обнаружите какие либо ошибки, то сообщите по одной из указанных ссылок ниже (*Website)

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; show selected item durations
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Show Selected Item Durations
 -- Displays the length in seconds of each selected item.
 -- Single item → simple message. Multiple items → numbered list.

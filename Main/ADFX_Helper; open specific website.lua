@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; open specific website
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; open specific website
  * About: Opens a specified website URL in the default browser

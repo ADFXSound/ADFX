@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; auto lufs loudness matching multiple
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; auto lufs loudness matching multiple
  * About: This script matches the LUFS volume of the second selected item to the first one for multiple pairs

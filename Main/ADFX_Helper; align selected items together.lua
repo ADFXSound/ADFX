@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; align selected items together
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; align selected items together
  * About: Aligns selected items consecutively without spaces between them

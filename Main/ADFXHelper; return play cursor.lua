@@ -1,3 +1,7 @@
+-- @description ADFXHelper; return play cursor
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- ADFXHelper; return play cursor.lua
 -- Starts playback while remembering the edit cursor position.
 -- Run the same action again to stop; playback returns to the saved position.

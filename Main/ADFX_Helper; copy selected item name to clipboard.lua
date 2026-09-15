@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; copy selected item name to clipboard
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Copy Selected Item Names to Clipboard
 -- This script copies all selected media item names to the clipboard
 

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; align item end to edit cursor
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Align Item End to Edit Cursor
 -- Moves selected item(s) so their end aligns with the edit cursor position
 

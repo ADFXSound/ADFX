@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; insert empty item at time selection
+-- @version 1.0.0
+-- @author ADFXSound
+
 function insert_empty_item_to_time_selection()
 	for i =1, reaper.CountSelectedTracks(0) do
 		trk = reaper.GetSelectedTrack(0,i-1)

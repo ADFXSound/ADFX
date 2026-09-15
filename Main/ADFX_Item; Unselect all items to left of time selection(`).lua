@@ -1,3 +1,7 @@
+-- @description ADFX_Item; Unselect all items to left of time selection(`)
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
    * Category:    Item
    * Description: Unselect all items to left of time selection

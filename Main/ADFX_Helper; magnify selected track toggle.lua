@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; magnify selected track toggle
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Toggle Magnify Selected Track View
 -- This script toggles between a magnified view of the selected track (with automation lanes)
 -- and the previous view state. It stores/restores track visibility, heights, and scroll position.

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; create markers at grid intervals
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; create markers at grid intervals
  * About: Create markers on the downbeat of 1 at grid intervals

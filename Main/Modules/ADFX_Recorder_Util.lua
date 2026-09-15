@@ -1,3 +1,7 @@
+-- @description ADFX_Recorder_Util
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX_Recorder_Util.lua
   Pure helper functions for the ADFX recorder. No REAPER or ReaImGui calls live

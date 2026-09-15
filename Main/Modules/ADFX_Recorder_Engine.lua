@@ -1,3 +1,7 @@
+-- @description ADFX_Recorder_Engine
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX_Recorder_Engine.lua
   All REAPER-side behaviour for the ADFX recorder: capture routing, transport,

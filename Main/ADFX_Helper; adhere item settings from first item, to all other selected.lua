@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; adhere item settings from first item, to all other selected
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; make variations from markered takes
  * About: A quick way to duplicate items, and consolidate items for export

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; strip silence
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
 ADFX_Helper; strip silence.lua
 v1.3.0

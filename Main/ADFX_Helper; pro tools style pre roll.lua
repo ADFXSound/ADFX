@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; pro tools style pre roll
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Pro Tools Style Pre-Roll Record
 -- Sets a punch-in point at cursor, plays from X bars/beats/seconds before, and auto-records at cursor
 --

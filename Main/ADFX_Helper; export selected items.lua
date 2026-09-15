@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; export selected items
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- REAPER Script: Render Selected Items with LUFS Normalization
 -- Author: Generated Script
 -- Version: 1.0

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; script launcher
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; script launcher
  * About: Collects all selected items and places them on a single track while preserving timestamps, and deletes empty source tracks

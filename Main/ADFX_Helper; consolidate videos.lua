@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; consolidate videos
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
 ADFX - Consolidate Video to MP4 v13
 

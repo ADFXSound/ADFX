@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; copy name script multiple_BottomToTop
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; copy name from bottom to top
  * About: -- Copies the name from the bottom track item to top track item -- 

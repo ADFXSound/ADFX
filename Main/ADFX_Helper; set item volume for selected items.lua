@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; set item volume for selected items
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Set Item Volume with Dialog Window
 -- This script opens a dialog to input dB value and applies it to selected items
 

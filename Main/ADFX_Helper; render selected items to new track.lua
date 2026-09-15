@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; render selected items to new track
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; render selected items to new track
  * About: -- Processes each selected item one by one with:

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; insert track respect folders
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- ~~~~~~~~~~~ GLOBAL VARS ~~~~~~~~~~
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

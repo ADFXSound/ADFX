@@ -1,3 +1,7 @@
+-- @description ADFX_Item; select all items on track
+-- @version 1.0.0
+-- @author ADFXSound
+
 function Main()
 
 	local track_count = reaper.CountSelectedTracks(0)

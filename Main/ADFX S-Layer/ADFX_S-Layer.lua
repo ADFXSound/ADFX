@@ -1,3 +1,7 @@
+-- @description ADFX_S-Layer
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX S-Layer v0.2.63
   REAPER / ReaImGui prototype inspired by the workflow of Twisted Tools S-LAYER.

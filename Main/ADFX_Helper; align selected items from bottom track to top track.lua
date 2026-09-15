@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; align selected items from bottom track to top track
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Script Name: Align Selected Items from Bottom Track to Top Track
 -- Description: This script aligns all selected media items from the bottom track to match
 --              the positions of items on the top track in the selection.

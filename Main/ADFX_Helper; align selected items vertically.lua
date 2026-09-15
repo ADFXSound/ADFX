@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; align selected items vertically
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Align Selected Items Vertically to Different Tracks
 -- This script moves selected items to sequential tracks while preserving their timeline positions
 

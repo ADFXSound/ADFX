@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; create marker intervals and align selected items to them
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; create markers intervals and align selected items to them
  * About: Automatically aligns selected items with equal spacing and creates markers at each item position

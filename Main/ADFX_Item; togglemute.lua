@@ -1,3 +1,7 @@
+-- @description ADFX_Item; togglemute
+-- @version 1.0.0
+-- @author ADFXSound
+
 function Main()
 
   count_sel_items =  reaper.CountSelectedMediaItems( 0 )

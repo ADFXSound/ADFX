@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; focus next marker window to the right
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Close the "Edit Marker" window if it's open
 local edit_marker_window = reaper.JS_Window_Find("Edit Marker", true)
 if edit_marker_window then

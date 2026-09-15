@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; organize items by similar name
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Organize SELECTED Items by Core Name
 -- Groups selected items with the same core name onto the same track
 -- Example: FS_BOOT_Add_Run_01 through FS_BOOT_Add_Run_12 → ALL go to ONE track "FS_BOOT_Add_Run"

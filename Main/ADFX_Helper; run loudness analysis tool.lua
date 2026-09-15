@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; run loudness analysis tool
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; run loudness analysis tool
  * About: This script opens the SWS/BR loudness analysis dialog

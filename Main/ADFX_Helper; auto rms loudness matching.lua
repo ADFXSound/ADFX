@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; auto rms loudness matching
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; auto rms loudness matching
  * About: This script matches the RMS volume of the second selected item to the first one

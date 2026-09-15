@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; set loop points for selected items
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; set loops points for selected items
  * About: Sets loop points based on selected item(s). For a single item, sets loop to that item's boundaries.

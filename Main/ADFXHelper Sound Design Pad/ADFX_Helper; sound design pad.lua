@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; sound design pad
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
 ADFXSound Sound Design Pad v1.0.7
 REAPER + ReaImGui + ADFX Varispeed JSFX + optional Windows Wacom Bridge

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; lufs loudness analysis
+-- @version 1.0.0
+-- @author ADFXSound
+
 function Main()
   local item_count = reaper.CountSelectedMediaItems(0)
   

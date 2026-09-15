@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; show selected item timeline placement
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Show Selected Item Start Times
 -- Displays the timeline start position (in seconds) of each selected item.
 -- Single item → simple message. Multiple items → numbered list.

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; add specific plugin to selected track
+-- @version 1.0.0
+-- @author ADFXSound
+
 
 -- Add FabFilter Pro-Q4 to Selected Track in REAPER
 -- This script adds the FabFilter Pro-Q4 plugin to the currently selected track in REAPER

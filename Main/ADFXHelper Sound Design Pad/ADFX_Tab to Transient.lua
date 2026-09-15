@@ -1,3 +1,7 @@
+-- @description ADFX_Tab to Transient
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX: Tab to Transient
   Select and move to the next item, set loop points to that selection,

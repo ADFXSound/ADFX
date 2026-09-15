@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; copy render directory to clipboard
+-- @version 1.0.0
+-- @author ADFXSound
+
 function Main()
 
 	retval, render_dir = reaper.GetSetProjectInfo_String(0, "RENDER_FILE", "", false)

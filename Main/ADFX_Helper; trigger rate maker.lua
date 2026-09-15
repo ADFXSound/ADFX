@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; trigger rate maker
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; trigger rate maker
  * About: Create a 6 second loop at a desired trigger rate time, for selected items

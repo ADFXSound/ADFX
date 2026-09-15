@@ -1,3 +1,7 @@
+-- @description ADFX_Item; Unselect all items to right of time selection(`)
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
    * Category:    Item
    * Description: Unselect all items to rigth of time selection​

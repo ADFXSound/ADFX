@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; plugin finder
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Try Common Pro-Q4 Plugin Names
 -- This script tries various common naming patterns for Pro-Q4
 -- Save this as "try_proq4_names.lua" in your REAPER Scripts folder

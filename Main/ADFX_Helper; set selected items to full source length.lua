@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; set selected items to full source length
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Set selected items to full source length
 
 reaper.Undo_BeginBlock()

@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; remove loudness normalization on selected items
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Remove Loudness / Gain Normalization from Selected Items
 -- Resets item volume, take volume, and removes take volume envelopes
 

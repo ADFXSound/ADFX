@@ -1,3 +1,7 @@
+-- @description ADFX_Recorder
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX_Recorder.lua  —  shared output recorder strip for the ADFX tools
   ----------------------------------------------------------------------------

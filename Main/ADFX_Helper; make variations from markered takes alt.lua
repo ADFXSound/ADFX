@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; make variations from markered takes alt
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; make variations from markered takes
  * About: A quick way to duplicate items, and consolidate items for export

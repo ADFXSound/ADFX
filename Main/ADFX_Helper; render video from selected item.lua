@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; render video from selected item
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
 ADFX - EXPORT VIDEO + AUDIO v17
 ================================

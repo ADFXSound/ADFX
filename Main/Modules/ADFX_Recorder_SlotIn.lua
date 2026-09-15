@@ -1,3 +1,7 @@
+-- @description ADFX_Recorder_SlotIn
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX_Recorder_SlotIn.lua
   ----------------------------------------------------------------------------

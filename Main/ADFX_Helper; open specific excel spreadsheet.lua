@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; open specific excel spreadsheet
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
  * ReaScript Name: ADFX_Helper; open specific excel spreadsheet
  * About: A quick way to open a relevant execl spreadsheet

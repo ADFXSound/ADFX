@@ -1,3 +1,7 @@
+-- @description ADFX_Recorder_Demo
+-- @version 1.0.0
+-- @author ADFXSound
+
 --[[
   ADFX_Recorder_Demo.lua
   Standalone host for the shared recorder strip. Run this to check the recorder

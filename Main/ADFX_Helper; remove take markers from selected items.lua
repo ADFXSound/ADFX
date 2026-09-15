@@ -1,3 +1,7 @@
+-- @description ADFX_Helper; remove take markers from selected items
+-- @version 1.0.0
+-- @author ADFXSound
+
 -- Remove Take Markers From Selected Items
 -- Targets numbered downward-triangle take markers visible on items
 
