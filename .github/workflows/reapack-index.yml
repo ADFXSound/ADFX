@@ -1,4 +1,4 @@
-name: ReaPack index
+name: ReaPack validation
 
 on:
   push:
@@ -7,36 +7,28 @@ on:
       - index.xml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  index:
+  validate:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
+
       - name: Install reapack-index
         run: gem install reapack-index --no-document
+
       - name: Install Pandoc
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc
-      - name: Validate metadata
-        run: reapack-index --check .
-      - name: Update index
-        run: reapack-index --scan --no-commit .
-      - name: Commit index
-        run: |
-          if git diff --quiet -- index.xml; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.xml
-          git commit -m "index: update [ci skip]"
-          git push
 
+      - name: Validate package metadata
+        run: reapack-index --check .
