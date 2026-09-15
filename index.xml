@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<index version="1" name="ADFXSound">
+<index version="1" name="ADFX">
   <category name=".">
     <reapack name="ADFX Recorder Demo Package.lua" type="script" desc="ADFX Recorder Demo">
       <version name="1.0.2" author="ADFXSound">
