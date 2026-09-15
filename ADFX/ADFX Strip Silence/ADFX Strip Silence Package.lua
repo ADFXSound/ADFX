@@ -3,5 +3,5 @@
 -- @author ADFXSound
 -- @metapackage
 -- @provides
---   [main] ADFX_Helper; strip silence.luac > ADFX_Helper; strip silence.lua
+--   [main] ADFX_Helper; strip silence.lua
 --   [nomain] ADFX_O_LOGO.png

@@ -3,9 +3,9 @@
 -- @author ADFXSound
 -- @metapackage
 -- @provides
---   [main] ADFX_Helper; sound design pad.luac > ADFX_Helper; sound design pad.lua
---   [main] ADFX_Tab to Previous Transient.luac > ADFX_Tab to Previous Transient.lua
---   [main] ADFX_Tab to Transient.luac > ADFX_Tab to Transient.lua
+--   [main] ADFX_Helper; sound design pad.lua
+--   [main] ADFX_Tab to Previous Transient.lua
+--   [main] ADFX_Tab to Transient.lua
 --   [nomain] Assets/ADFX_LOGO_BG_BANNER_CLEAR.png
 --   [nomain] Bridge/SDPP_WacomBridge.ps1
 --   [nomain] Bridge/Start Wacom Bridge.bat

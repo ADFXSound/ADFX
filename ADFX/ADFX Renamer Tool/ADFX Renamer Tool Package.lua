@@ -3,5 +3,5 @@
 -- @author ADFXSound
 -- @metapackage
 -- @provides
---   [main] ADFX_Helper; renamer tool.luac > ADFX_Helper; renamer tool.lua
+--   [main] ADFX_Helper; renamer tool.lua
 --   [nomain] ADFX_O_LOGO.png

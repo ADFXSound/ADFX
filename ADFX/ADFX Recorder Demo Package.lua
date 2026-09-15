@@ -3,4 +3,4 @@
 -- @author ADFXSound
 -- @metapackage
 -- @provides
---   [main] ADFX_Recorder_Demo.luac > ADFX_Recorder_Demo.lua
+--   [main] ADFX_Recorder_Demo.lua

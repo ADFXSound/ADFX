@@ -3,8 +3,8 @@
 -- @author ADFXSound
 -- @metapackage
 -- @provides
---   [nomain] Modules/ADFX_Recorder.luac > Modules/ADFX_Recorder.lua
---   [nomain] Modules/ADFX_Recorder_Buffer.luac > Modules/ADFX_Recorder_Buffer.lua
---   [nomain] Modules/ADFX_Recorder_Engine.luac > Modules/ADFX_Recorder_Engine.lua
---   [nomain] Modules/ADFX_Recorder_SlotIn.luac > Modules/ADFX_Recorder_SlotIn.lua
---   [nomain] Modules/ADFX_Recorder_Util.luac > Modules/ADFX_Recorder_Util.lua
+--   [nomain] Modules/ADFX_Recorder.lua
+--   [nomain] Modules/ADFX_Recorder_Buffer.lua
+--   [nomain] Modules/ADFX_Recorder_Engine.lua
+--   [nomain] Modules/ADFX_Recorder_SlotIn.lua
+--   [nomain] Modules/ADFX_Recorder_Util.lua

@@ -21,6 +21,10 @@ jobs:
           ruby-version: '3.3'
       - name: Install reapack-index
         run: gem install reapack-index --no-document
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
       - name: Validate metadata
         run: reapack-index --check .
       - name: Update index

@@ -3,5 +3,5 @@
 -- @author ADFXSound
 -- @metapackage
 -- @provides
---   [main] ADFX_S-Layer.luac > ADFX_S-Layer.lua
+--   [main] ADFX_S-Layer.lua
 --   [nomain] ADFX_LOGO_BG_BANNER_CLEAR.png
