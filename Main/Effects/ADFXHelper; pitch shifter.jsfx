@@ -1,6 +1,6 @@
 desc:ADFXHelper; pitch shifter
-version: 1.0.0
-author: adfxsound
+author: ADFX
+version: 1.2.5
 // ADFXHelper Pitch Shifter v1.2.5
 // Self-contained JSFX DSP + custom native GUI.
 // Original implementation inspired by the public control set of Steinberg PitchShifter.
