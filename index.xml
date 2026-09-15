@@ -3,16 +3,16 @@
   <category name=".">
     <reapack name="ADFX Recorder Demo Package.lua" type="script" desc="ADFX Recorder Demo">
       <version name="1.0.2" author="ADFXSound">
-        <source main="main" file="ADFX_Recorder_Demo.lua">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Recorder_Demo.lua</source>
+        <source main="main" file="ADFX_Recorder_Demo.lua">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Recorder_Demo.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX Recorder Modules.lua" type="script" desc="ADFX Recorder Modules">
       <version name="1.0.2" author="ADFXSound">
-        <source file="Modules/ADFX_Recorder.lua">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Modules/ADFX_Recorder.lua</source>
-        <source file="Modules/ADFX_Recorder_Buffer.lua">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Modules/ADFX_Recorder_Buffer.lua</source>
-        <source file="Modules/ADFX_Recorder_Engine.lua">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Modules/ADFX_Recorder_Engine.lua</source>
-        <source file="Modules/ADFX_Recorder_SlotIn.lua">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Modules/ADFX_Recorder_SlotIn.lua</source>
-        <source file="Modules/ADFX_Recorder_Util.lua">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Modules/ADFX_Recorder_Util.lua</source>
+        <source file="Modules/ADFX_Recorder.lua">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Modules/ADFX_Recorder.lua</source>
+        <source file="Modules/ADFX_Recorder_Buffer.lua">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Modules/ADFX_Recorder_Buffer.lua</source>
+        <source file="Modules/ADFX_Recorder_Engine.lua">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Modules/ADFX_Recorder_Engine.lua</source>
+        <source file="Modules/ADFX_Recorder_SlotIn.lua">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Modules/ADFX_Recorder_SlotIn.lua</source>
+        <source file="Modules/ADFX_Recorder_Util.lua">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Modules/ADFX_Recorder_Util.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; align selected items together.lua" type="script" desc="ADFX_Helper; align selected items together">
@@ -26,7 +26,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; align selected items together.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20align%20selected%20items%20together.lua</source>
+        <source file="ADFX_Helper; align selected items together.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20align%20selected%20items%20together.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; auto align selected items to grid.lua" type="script" desc="ADFX_Helper; align selected items to grid">
@@ -40,7 +40,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; auto align selected items to grid.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20auto%20align%20selected%20items%20to%20grid.lua</source>
+        <source file="ADFX_Helper; auto align selected items to grid.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20auto%20align%20selected%20items%20to%20grid.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; auto align selected items to marker.lua" type="script" desc="ADFX_Helper; align selected items to markers">
@@ -54,7 +54,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; auto align selected items to marker.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20auto%20align%20selected%20items%20to%20marker.lua</source>
+        <source file="ADFX_Helper; auto align selected items to marker.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20auto%20align%20selected%20items%20to%20marker.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; copy render directory to clipboard.lua" type="script" desc="ADFX_Helper; copy render directory to clipboard">
@@ -68,7 +68,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; copy render directory to clipboard.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20copy%20render%20directory%20to%20clipboard.lua</source>
+        <source file="ADFX_Helper; copy render directory to clipboard.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20copy%20render%20directory%20to%20clipboard.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; create marker intervals and align selected items to them.lua" type="script" desc="ADFX_Helper; create markers intervals and align selected items to them">
@@ -82,7 +82,7 @@
 </description>
       </metadata>
       <version name="1.1" author="ADFX">
-        <source file="ADFX_Helper; create marker intervals and align selected items to them.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20create%20marker%20intervals%20and%20align%20selected%20items%20to%20them.lua</source>
+        <source file="ADFX_Helper; create marker intervals and align selected items to them.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20create%20marker%20intervals%20and%20align%20selected%20items%20to%20them.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; create markers at grid intervals.lua" type="script" desc="ADFX_Helper; create markers at grid intervals">
@@ -96,7 +96,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; create markers at grid intervals.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20create%20markers%20at%20grid%20intervals.lua</source>
+        <source file="ADFX_Helper; create markers at grid intervals.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20create%20markers%20at%20grid%20intervals.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; export markers to csv.lua" type="script" desc="ADFX_Helper; export markers to csv">
@@ -110,7 +110,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFXSound">
-        <source file="ADFX_Helper; export markers to csv.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20export%20markers%20to%20csv.lua</source>
+        <source file="ADFX_Helper; export markers to csv.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20export%20markers%20to%20csv.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; insert 2 pop sync tone.lua" type="script" desc="Insert 2 Pop Sync Tone">
@@ -124,8 +124,8 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFXSound">
-        <source file="ADFX_Helper; insert 2 pop sync tone.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20insert%202%20pop%20sync%20tone.lua</source>
-        <source file="Media/TwoPop1KhzTone.wav">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Media/TwoPop1KhzTone.wav</source>
+        <source file="ADFX_Helper; insert 2 pop sync tone.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20insert%202%20pop%20sync%20tone.lua</source>
+        <source file="Media/TwoPop1KhzTone.wav">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Media/TwoPop1KhzTone.wav</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; make variations from markered takes.lua" type="script" desc="ADFX_Helper; make variations from markered takes">
@@ -139,7 +139,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; make variations from markered takes.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20make%20variations%20from%20markered%20takes.lua</source>
+        <source file="ADFX_Helper; make variations from markered takes.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20make%20variations%20from%20markered%20takes.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; render video from selected item.lua" type="script" desc="ADFX_Helper; render video from selected item">
@@ -153,7 +153,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; render video from selected item.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20render%20video%20from%20selected%20item.lua</source>
+        <source file="ADFX_Helper; render video from selected item.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20render%20video%20from%20selected%20item.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; set repeat off.lua" type="script" desc="ADFX_Helper; set repeat off">
@@ -167,7 +167,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; set repeat off.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20set%20repeat%20off.lua</source>
+        <source file="ADFX_Helper; set repeat off.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20set%20repeat%20off.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; set repeat on.lua" type="script" desc="ADFX_Helper; set repeat on">
@@ -181,7 +181,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; set repeat on.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20set%20repeat%20on.lua</source>
+        <source file="ADFX_Helper; set repeat on.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20set%20repeat%20on.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; take name from clipboard paste.lua" type="script" desc="ADFX_Helper; take name from clipboard paste">
@@ -195,7 +195,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; take name from clipboard paste.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20take%20name%20from%20clipboard%20paste.lua</source>
+        <source file="ADFX_Helper; take name from clipboard paste.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20take%20name%20from%20clipboard%20paste.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; take name to clipboard copy.lua" type="script" desc="ADFX_Helper; take name from clipboard copy">
@@ -209,7 +209,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; take name to clipboard copy.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20take%20name%20to%20clipboard%20copy.lua</source>
+        <source file="ADFX_Helper; take name to clipboard copy.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20take%20name%20to%20clipboard%20copy.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; trigger rate maker.lua" type="script" desc="ADFX_Helper; trigger rate maker">
@@ -223,7 +223,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Helper; trigger rate maker.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper;%20trigger%20rate%20maker.lua</source>
+        <source file="ADFX_Helper; trigger rate maker.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper;%20trigger%20rate%20maker.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper_ cubase style split tool reset.lua" type="script" desc="ADFX_Helper; cubase style split tool">
@@ -237,7 +237,7 @@
 </description>
       </metadata>
       <version name="1.1" author="ADFX">
-        <source file="ADFX_Helper_ cubase style split tool reset.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper_%20cubase%20style%20split%20tool%20reset.lua</source>
+        <source file="ADFX_Helper_ cubase style split tool reset.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper_%20cubase%20style%20split%20tool%20reset.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper_ cubase style split tool.lua" type="script" desc="ADFX_Helper; cubase style split tool">
@@ -251,7 +251,7 @@
 </description>
       </metadata>
       <version name="1.1" author="ADFX">
-        <source file="ADFX_Helper_ cubase style split tool.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Helper_%20cubase%20style%20split%20tool.lua</source>
+        <source file="ADFX_Helper_ cubase style split tool.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Helper_%20cubase%20style%20split%20tool.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Item; reset selected items volume to default.lua" type="script" desc="ADFX_Helper; reset selected items volume to default">
@@ -265,7 +265,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Item; reset selected items volume to default.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Item;%20reset%20selected%20items%20volume%20to%20default.lua</source>
+        <source file="ADFX_Item; reset selected items volume to default.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Item;%20reset%20selected%20items%20volume%20to%20default.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Item; select all items on track.lua" type="script" desc="ADFX_Helper; select all items on track.lua">
@@ -279,7 +279,7 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Item; select all items on track.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Item;%20select%20all%20items%20on%20track.lua</source>
+        <source file="ADFX_Item; select all items on track.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Item;%20select%20all%20items%20on%20track.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Item; togglemute.lua" type="script" desc="ADFX_Helper; togglemute.lua">
@@ -293,50 +293,50 @@
 </description>
       </metadata>
       <version name="1.0" author="ADFX">
-        <source file="ADFX_Item; togglemute.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX_Item;%20togglemute.lua</source>
+        <source file="ADFX_Item; togglemute.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX_Item;%20togglemute.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX Renamer Tool Package.lua" type="script" desc="ADFX Renamer Tool">
       <version name="1.6.1" author="ADFXSound">
-        <source file="ADFX Renamer Tool/ADFX_Helper; renamer tool.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX%20Renamer%20Tool/ADFX_Helper;%20renamer%20tool.lua</source>
-        <source file="ADFX Renamer Tool/ADFX_O_LOGO.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX%20Renamer%20Tool/ADFX_O_LOGO.png</source>
+        <source file="ADFX Renamer Tool/ADFX_Helper; renamer tool.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX%20Renamer%20Tool/ADFX_Helper;%20renamer%20tool.lua</source>
+        <source file="ADFX Renamer Tool/ADFX_O_LOGO.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX%20Renamer%20Tool/ADFX_O_LOGO.png</source>
       </version>
     </reapack>
     <reapack name="ADFX S-Layer Package.lua" type="script" desc="ADFX S-Layer">
       <version name="0.2.65" author="ADFXSound">
-        <source file="ADFX S-Layer/ADFX_S-Layer.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
-        <source file="ADFX S-Layer/ADFX_LOGO_BG_BANNER_CLEAR.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX%20S-Layer/ADFX_LOGO_BG_BANNER_CLEAR.png</source>
+        <source file="ADFX S-Layer/ADFX_S-Layer.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
+        <source file="ADFX S-Layer/ADFX_LOGO_BG_BANNER_CLEAR.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX%20S-Layer/ADFX_LOGO_BG_BANNER_CLEAR.png</source>
       </version>
     </reapack>
     <reapack name="ADFX Strip Silence Package.lua" type="script" desc="ADFX Strip Silence">
       <version name="1.4.1" author="ADFXSound">
-        <source file="ADFX Strip Silence/ADFX_Helper; strip silence.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX%20Strip%20Silence/ADFX_Helper;%20strip%20silence.lua</source>
-        <source file="ADFX Strip Silence/ADFX_O_LOGO.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFX%20Strip%20Silence/ADFX_O_LOGO.png</source>
+        <source file="ADFX Strip Silence/ADFX_Helper; strip silence.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX%20Strip%20Silence/ADFX_Helper;%20strip%20silence.lua</source>
+        <source file="ADFX Strip Silence/ADFX_O_LOGO.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFX%20Strip%20Silence/ADFX_O_LOGO.png</source>
       </version>
     </reapack>
     <reapack name="ADFX Sound Design Pad Package.lua" type="script" desc="ADFX Sound Design Pad">
       <version name="1.0.9" author="ADFXSound">
-        <source file="ADFXHelper Sound Design Pad/ADFX_Helper; sound design pad.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Helper;%20sound%20design%20pad.lua</source>
-        <source file="ADFXHelper Sound Design Pad/ADFX_Tab to Previous Transient.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Tab%20to%20Previous%20Transient.lua</source>
-        <source file="ADFXHelper Sound Design Pad/ADFX_Tab to Transient.lua" main="main">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Tab%20to%20Transient.lua</source>
-        <source file="ADFXHelper Sound Design Pad/Assets/ADFX_LOGO_BG_BANNER_CLEAR.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/Assets/ADFX_LOGO_BG_BANNER_CLEAR.png</source>
-        <source file="ADFXHelper Sound Design Pad/Bridge/SDPP_WacomBridge.ps1">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/Bridge/SDPP_WacomBridge.ps1</source>
-        <source file="ADFXHelper Sound Design Pad/Bridge/Start Wacom Bridge.bat">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/Bridge/Start%20Wacom%20Bridge.bat</source>
+        <source file="ADFXHelper Sound Design Pad/ADFX_Helper; sound design pad.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Helper;%20sound%20design%20pad.lua</source>
+        <source file="ADFXHelper Sound Design Pad/ADFX_Tab to Previous Transient.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Tab%20to%20Previous%20Transient.lua</source>
+        <source file="ADFXHelper Sound Design Pad/ADFX_Tab to Transient.lua" main="main">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Tab%20to%20Transient.lua</source>
+        <source file="ADFXHelper Sound Design Pad/Assets/ADFX_LOGO_BG_BANNER_CLEAR.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/Assets/ADFX_LOGO_BG_BANNER_CLEAR.png</source>
+        <source file="ADFXHelper Sound Design Pad/Bridge/SDPP_WacomBridge.ps1">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/Bridge/SDPP_WacomBridge.ps1</source>
+        <source file="ADFXHelper Sound Design Pad/Bridge/Start Wacom Bridge.bat">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/ADFXHelper%20Sound%20Design%20Pad/Bridge/Start%20Wacom%20Bridge.bat</source>
       </version>
     </reapack>
     <reapack name="ADFX Effects.lua" type="script" desc="ADFX Effects">
       <version name="1.0.1" author="ADFXSound">
-        <source type="effect" file="ADFXHelper; pitch shifter.jsfx">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFXHelper;%20pitch%20shifter.jsfx</source>
-        <source type="effect" file="ADFX_Recorder_Capture.jsfx">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
-        <source type="effect" file="ADFX_SLayer_Trigger.jsfx">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFX_SLayer_Trigger.jsfx</source>
-        <source type="effect" file="ADFX_Varispeed.jsfx">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFX_Varispeed.jsfx</source>
-        <source type="effect" file="ADFX_LOGO_BG_BANNER_CLEAR.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFX_LOGO_BG_BANNER_CLEAR.png</source>
-        <source type="effect" file="ADFX_O_LOGO.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFX_O_LOGO.png</source>
-        <source type="effect" file="ADFX_PITCH_SHIFTER_LOGO.png">https://raw.githubusercontent.com/ADearing01/ADFX/master/Main/Effects/ADFX_PITCH_SHIFTER_LOGO.png</source>
+        <source type="effect" file="ADFXHelper; pitch shifter.jsfx">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFXHelper;%20pitch%20shifter.jsfx</source>
+        <source type="effect" file="ADFX_Recorder_Capture.jsfx">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
+        <source type="effect" file="ADFX_SLayer_Trigger.jsfx">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFX_SLayer_Trigger.jsfx</source>
+        <source type="effect" file="ADFX_Varispeed.jsfx">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFX_Varispeed.jsfx</source>
+        <source type="effect" file="ADFX_LOGO_BG_BANNER_CLEAR.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFX_LOGO_BG_BANNER_CLEAR.png</source>
+        <source type="effect" file="ADFX_O_LOGO.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFX_O_LOGO.png</source>
+        <source type="effect" file="ADFX_PITCH_SHIFTER_LOGO.png">https://raw.githubusercontent.com/ADFXSound/ADFX/master/Main/Effects/ADFX_PITCH_SHIFTER_LOGO.png</source>
       </version>
     </reapack>
   </category>
   <metadata>
-    <link rel="website">https://github.com/ADearing01/ADFX</link>
+    <link rel="website">https://github.com/ADFXSound/ADFX</link>
   </metadata>
 </index>
