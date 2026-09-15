@@ -1,0 +1,48 @@
+desc:ADFX S-Layer Trigger Bridge v0.2.7
+// ADFX_SLAYER_BRIDGE_LAYERS=16
+// ADFX_SLAYER_BRIDGE_BOOTSAFE=1
+// Managed by ADFX S-Layer. One instance lives on each playback lane.
+// slider2 is zero-based: 0=L1 ... 15=L16.
+
+options:gmem=ADFX_SLayer_v020
+
+slider1:60<0,127,1>Trigger note
+slider2:0<0,15,1>Layer index
+
+@init
+// Never interpret the pre-existing shared-memory value as a new trigger when
+// REAPER restores this FX from a saved project. The first audio block simply
+// adopts whatever counter is already present, then subsequent changes fire.
+armed = 0;
+note = floor(slider1 + 0.5);
+layer = floor(slider2 + 0.5);
+last_counter = 0;
+
+@slider
+note = floor(slider1 + 0.5);
+new_layer = floor(slider2 + 0.5);
+// Changing/restoring the lane index also re-arms from that lane's current
+// counter so moving the managed bridge can never create a phantom note.
+new_layer != layer ? (
+  layer = new_layer;
+  armed = 0;
+) : (
+  layer = new_layer;
+);
+
+@block
+counter = floor(gmem[10 + layer] + 0.5);
+velocity = floor(gmem[1] + 0.5);
+velocity < 1 ? velocity = 1;
+velocity > 127 ? velocity = 127;
+
+!armed ? (
+  last_counter = counter;
+  gmem[30 + layer] = counter;
+  armed = 1;
+) : counter != last_counter ? (
+  midisend(0, $x90, note, velocity);
+  midisend(max(0, samplesblock-1), $x80, note, 0);
+  gmem[30 + layer] = counter;
+  last_counter = counter;
+);
