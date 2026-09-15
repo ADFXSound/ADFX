@@ -1,11 +1,11 @@
 --[[
  * ReaScript Name: ADFX_Helper; trigger rate maker
- * About: Create a 6 second loop at desired trigger rate, randomizing selected items, on a new track
+ * About: Create a 6 second loop at a desired trigger rate time, for selected items
  * Author: ADFX
  * Author URI: adfxsound.com
  * Repository URI: https://raw.githubusercontent.com/ADearing01/ADFXSound/master/index.xml
  * REAPER: 7.34
- * Extensions: SWS/S&M 2.14.0.3
+ * Extensions: SWS/S&M 2.13.1.0
  * Version: 1.0
 --]]
 

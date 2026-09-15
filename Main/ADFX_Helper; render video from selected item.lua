@@ -1,13 +1,4 @@
 --[[
- * ReaScript Name: ADFX_Helper; render video from selected item
- * About: Export the selected video item with rendered REAPER audio.
- * Author: ADFX
- * Author URI: https://www.adfxsound.com
- * Repository URI: https://raw.githubusercontent.com/ADearing01/ADFXSound/master/index.xml
- * Version: 1.0
---]]
-
---[[
 ADFX - EXPORT VIDEO + AUDIO v17
 ================================
 

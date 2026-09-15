@@ -1,6 +1,0 @@
--- @description ADFX Recorder Demo
--- @version 1.0.2
--- @author ADFXSound
--- @metapackage
--- @provides
---   [main] ADFX_Recorder_Demo.lua

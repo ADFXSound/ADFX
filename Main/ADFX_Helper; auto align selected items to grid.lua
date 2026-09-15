@@ -4,14 +4,14 @@
  * Author: ADFX
  * Author URI: adfxsound.com
  * Repository URI: https://raw.githubusercontent.com/ADearing01/ADFXSound/master/index.xml
- * REAPER: 6.63
- * Extensions: SWS/S&M 2.14.0.3
+ * REAPER: 7.34
+ * Extensions: SWS/S&M 2.13.1.0
  * Version: 1.0
 --]]
 
 --[[
  * Changelog:
- * v1.0 (2022-07-10)
+ * v1.0 (2025-03-05)
   + Initial Release
 --]]
 
