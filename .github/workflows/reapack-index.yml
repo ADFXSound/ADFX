@@ -28,7 +28,7 @@ jobs:
       - name: Validate metadata
         run: reapack-index --check .
       - name: Update index
-        run: reapack-index --scan .
+        run: reapack-index --scan --no-commit .
       - name: Commit index
         run: |
           if git diff --quiet -- index.xml; then
@@ -39,3 +39,4 @@ jobs:
           git add index.xml
           git commit -m "index: update [ci skip]"
           git push
+
