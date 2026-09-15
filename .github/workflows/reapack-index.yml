@@ -31,16 +31,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc
 
-      - name: Generate ReaPack index
+      # IMPORTANT:
+      # reapack-index --commit creates the commit itself,
+      # so Git identity must exist BEFORE running it.
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate and commit ReaPack index
         run: reapack-index --commit
 
       - name: Push generated index
-        run: |
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "index.xml is already up to date."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git push
+        run: git push
