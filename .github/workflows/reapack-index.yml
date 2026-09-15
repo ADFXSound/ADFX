@@ -1,22 +1,25 @@
-name: ReaPack validation
+name: ReaPack index
 
 on:
   push:
     branches: [master]
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  index:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: ruby/setup-ruby@v1
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
 
@@ -28,5 +31,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc
 
-      - name: Validate package metadata
-        run: reapack-index --check .
+      - name: Generate ReaPack index
+        run: reapack-index --commit
+
+      - name: Push generated index
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "index.xml is already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git push
