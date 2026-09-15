@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; render selected items to new single track
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 --[[

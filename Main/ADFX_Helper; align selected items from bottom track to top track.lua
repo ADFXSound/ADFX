@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; align selected items from bottom track to top track
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Script Name: Align Selected Items from Bottom Track to Top Track

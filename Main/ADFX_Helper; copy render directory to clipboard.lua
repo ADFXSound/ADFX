@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; copy render directory to clipboard
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 function Main()

@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; move timeline cursor to beginning
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Set Cursor to Start (Keep Zoom)

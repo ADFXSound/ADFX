@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; focus next marker window to the right
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Close the "Edit Marker" window if it's open

@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; send selected items to pro tools
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Minimal Send to Pro Tools Script

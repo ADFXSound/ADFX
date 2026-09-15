@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; open specific excel spreadsheet
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 --[[

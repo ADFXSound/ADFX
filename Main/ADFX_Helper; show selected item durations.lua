@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; show selected item durations
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Show Selected Item Durations

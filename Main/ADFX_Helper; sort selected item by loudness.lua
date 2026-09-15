@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; sort selected item by loudness
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Sort Selected Items by Loudness

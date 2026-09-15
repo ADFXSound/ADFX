@@ -1,5 +1,5 @@
 -- @description ADFX_Item; Select items in selected tracks from cursor to end of project
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 --[[

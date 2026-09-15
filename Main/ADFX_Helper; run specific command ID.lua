@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; run specific command ID
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Run Command by ID Script for REAPER

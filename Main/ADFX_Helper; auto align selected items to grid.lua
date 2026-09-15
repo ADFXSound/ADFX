@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; auto align selected items to grid
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 --[[

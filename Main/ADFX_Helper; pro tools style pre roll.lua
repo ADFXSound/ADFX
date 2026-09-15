@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; pro tools style pre roll
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Pro Tools Style Pre-Roll Record

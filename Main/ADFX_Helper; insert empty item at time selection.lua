@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; insert empty item at time selection
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 function insert_empty_item_to_time_selection()

@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; set item playback rate
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Set Playback Rate and Stretch Selected Items with Auto-Spacing

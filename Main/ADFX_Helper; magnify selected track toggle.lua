@@ -1,5 +1,5 @@
 -- @description ADFX_Helper; magnify selected track toggle
--- @version 1.0.0
+-- @version 2.0.0
 -- @author ADFXSound
 
 -- Toggle Magnify Selected Track View
