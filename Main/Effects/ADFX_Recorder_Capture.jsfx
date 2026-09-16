@@ -1,6 +1,6 @@
 desc: ADFX Recorder Capture
 author: ADFX
-version: 1.0
+version: 1.1
 about:
   Continuous capture buffer for the ADFX recorder strip.
 
@@ -65,9 +65,17 @@ configure = 1;
   last_srate = srate;
   base = SLOT_BASE + slot * SLOT_STRIDE;
 
-  // The ring holds interleaved stereo, and an export needs a contiguous copy
-  // of the slice being exported, so the worst case is four words per frame.
-  max_frames = floor((__memtop() - 65536) / 4);
+  // v1.1: exports are intentionally bounded.  Older builds reserved a scratch
+  // buffer as large as the entire ring and attempted to export the whole take
+  // in one call.  Long stereo exports could create an item with the requested
+  // duration but valid samples only through roughly the first memory window.
+  // Keep a small fixed scratch area and let the Lua engine request consecutive
+  // chunks, then glue those chunks into one user-facing file.
+  export_chunk_frames = floor(srate * 20);
+  export_chunk_frames > 1048576 ? export_chunk_frames = 1048576;
+  export_chunk_frames < 16384 ? export_chunk_frames = 16384;
+  scratch_words = export_chunk_frames * 2;
+  max_frames = floor((__memtop() - 65536 - scratch_words) / 2);
   cap_frames = floor(buffer_seconds * srate);
   cap_frames > max_frames ? cap_frames = max_frames;
   cap_frames < srate ? cap_frames = srate;
@@ -136,6 +144,8 @@ peak = 0;
     want_start = oldest;
   );
   want_start + want_len > frames ? want_len = frames - want_start;
+  // Never hand export_buffer_to_project more than the known-safe scratch size.
+  want_len > export_chunk_frames ? want_len = export_chunk_frames;
 
   want_len > 0 ? (
     locked = 1;
