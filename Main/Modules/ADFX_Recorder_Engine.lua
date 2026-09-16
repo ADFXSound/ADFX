@@ -19,7 +19,7 @@ local Buffer = dofile(MODULE_DIR .. 'ADFX_Recorder_Buffer.lua')
 
 local Engine = {}
 Engine.__index = Engine
-Engine.VERSION = '1.5.0'
+Engine.VERSION = '1.7.5'
 
 local EXT_KEY = 'P_EXT:ADFX_RECORDER'
 local PEAK_BUCKETS = 1400
@@ -46,6 +46,7 @@ local ACTION_RECORD = 1013
 local ACTION_STOP = 1016
 local ACTION_STOP_SAVE_MEDIA = 40667
 local ACTION_TOGGLE_SNAP = 1157
+local ACTION_GLUE_ITEMS = 41588
 
 -- Isolated capture parks the transport this far past the end of the project,
 -- so nothing on the timeline plays into the recording.
@@ -61,6 +62,9 @@ local SHORT_TAKE_SLACK = 0.75
 -- The capture plug-in writes its file from REAPER's UI thread, which can be
 -- serviced at a reduced rate, so it gets far longer than a normal finalize.
 local EXPORT_TIMEOUT = 15.0
+-- Keep every JSFX export comfortably below the contiguous scratch-memory limit.
+local EXPORT_CHUNK_SECONDS = 20.0
+local EXPORT_CHUNK_MAX_FRAMES = 1048576
 
 -- How long the capture plug-in is given to report that it is seeing audio
 -- before the engine gives up on it and records the transport instead.
@@ -109,6 +113,18 @@ function Engine.new(opts)
   -- Auto record: the host says when it played something and the take closes
   -- itself once the sound has decayed.
   self.auto_record = opts.auto_record == true
+  -- Signal Session is a manually armed, silence-compacted recording. The JSFX
+  -- ring buffer is paused between sounds, so minutes of wall-clock silence do
+  -- not consume frames; all audible regions export as one contiguous WAV.
+  self.signal_record = opts.signal_record == true
+  self.signal_active = false
+  self.signal_heard = false
+  self.signal_quiet_since = nil
+  -- Maps compact Signal Session file time back to the wall-clock time at which
+  -- each audible region was actually triggered/captured. Required by hosts such
+  -- as S-Layer whose Restore Settings journal is keyed to wall time.
+  self.signal_segments = {}
+  self.signal_segment = nil
   self.silence_level = opts.silence_level or AUTO_SILENCE_LEVEL
   self.tail_seconds = opts.tail_seconds or AUTO_TAIL_SECONDS
   self.state = 'idle' -- idle | recording | finalizing | ready
@@ -118,6 +134,11 @@ function Engine.new(opts)
   self.sends = {}
   self.saved_arm = {}
   self:_reset_live()
+  -- Snapshot of the waveform the user actually saw while recording.  This is
+  -- retained across Stop/finalization and is a safe display fallback if REAPER's
+  -- freshly-created media source is not peak-readable yet.
+  self.final_live_peaks = nil
+  self.final_live_ceiling = nil
   return self
 end
 
@@ -287,17 +308,45 @@ end
 ]]
 function Engine:_watch_capture()
   if self.backend ~= 'buffer' or not self.buffer or not self.buffer.attached then return end
+  local now = self.api.time_precise()
   if self.buffer:alive() then
+    if self.capture_lost then self:_notify('Recorder Recovered') end
+    self.capture_lost = false
+    self.capture_lost_at = nil
+    self.capture_recover_at = nil
     self.buffer_confirmed = true
     return
   end
-  if self.buffer_confirmed then return end
-  if self.api.time_precise() - (self.buffer_attached_at or 0) < CAPTURE_START_GRACE then return end
 
+  if self.buffer_confirmed then
+    if not self.capture_lost then
+      self.capture_lost = true
+      self.capture_lost_at = now
+      self:_notify('Recorder Lost — attempting capture recovery')
+    end
+    -- Preserve the existing JSFX/ring buffer first. Re-enabling it is safe even
+    -- during an active take; deleting it would destroy frames already captured.
+    if not self.capture_recover_at or now - self.capture_recover_at >= 1.0 then
+      self.capture_recover_at = now
+      pcall(self.buffer.recover, self.buffer)
+    end
+    -- Only recreate a dead plug-in when no take/session depends on its ring
+    -- buffer. During recording we keep retrying and make the loss visible.
+    if self.state ~= 'recording' and now - (self.capture_lost_at or now) >= CAPTURE_START_GRACE then
+      self.buffer:detach()
+      self.buffer = nil
+      self.buffer_confirmed = false
+      self.capture_lost = false
+      if self:_ensure_capture() then self:_notify('Recorder capture recreated') end
+    end
+    return
+  end
+
+  if now - (self.buffer_attached_at or 0) < CAPTURE_START_GRACE then return end
   self.buffer:detach()
   self.buffer = nil
   self.backend = 'transport'
-  self:_notify('the capture plug-in is not processing audio — recording the transport instead')
+  self:_notify('Recorder Lost — capture plug-in did not start; transport fallback enabled')
 end
 
 function Engine:_track_index()
@@ -397,6 +446,27 @@ function Engine:_reset_live()
   self.live = { peaks = {}, span = LIVE_BUCKET_SECONDS, filled = 0, level = 0, ceiling = 0 }
 end
 
+-- Freeze an independent copy of the red live waveform.  The live table is
+-- mutable and is reset on the next Record, so current.peaks must never alias it.
+function Engine:_snapshot_live_waveform()
+  local src = self.live and self.live.peaks or {}
+  local out = {}
+  for i = 1, #src do
+    local p = src[i]
+    out[i] = { max = p.max or 0, min = p.min or 0 }
+  end
+
+  -- A very short take can stop before the first time bucket closes. Preserve
+  -- the pending meter value too, otherwise a clearly visible short transient
+  -- can become an empty finalized waveform.
+  if self.live and (self.live.level or 0) > 0 then
+    out[#out + 1] = { max = self.live.level, min = -self.live.level }
+  end
+
+  self.final_live_peaks = out
+  self.final_live_ceiling = self.live and self.live.ceiling or nil
+end
+
 --[[
   The tracks to read levels from while recording.
 
@@ -473,6 +543,16 @@ function Engine:_poll_live_meter()
   local level = self:_read_meter()
   if not level then return end
 
+  -- In Signal Session the capture JSFX is paused while WAITING. Its peak meter
+  -- can still see the source track, but those samples are deliberately NOT part
+  -- of the compact WAV. Do not let waiting-time peaks leak into the live strip;
+  -- the red live waveform must describe the same compact timeline as the final
+  -- blue waveform. Reading above still clears the JSFX peak accumulator.
+  if self.signal_record and self.state == 'recording' and not self.signal_active then
+    self:_note_level(level)
+    return
+  end
+
   local live = self.live
   if level > live.level then live.level = level end
   if level > live.ceiling then live.ceiling = level end
@@ -508,6 +588,30 @@ end
   Returns true if a take is open because of this call.
 ]]
 function Engine:signal_trigger()
+  -- Signal Session is explicitly armed with Record. A host trigger wakes the
+  -- paused capture immediately, so the first transient is not dependent on a
+  -- level detector noticing it after the fact.
+  if self.signal_record and self.state == 'recording' then
+    local now = self.api.time_precise()
+    -- A new trigger begins a new wall-clock mapping segment at the exact compact
+    -- file position where capture resumes. Signal Session removes real-world
+    -- gaps, so a single anchor + file position is not sufficient.
+    if self.signal_segment then
+      self.signal_segment.file_end = self:elapsed()
+      self.signal_segment.wall_end = now
+      self.signal_segment = nil
+    end
+    local seg = { file_start = self:elapsed(), wall_start = now }
+    self.signal_segments[#self.signal_segments + 1] = seg
+    self.signal_segment = seg
+    self.signal_active = true
+    self.signal_heard = false
+    self.signal_quiet_since = nil
+    self.auto_deadline = now + AUTO_SIGNAL_TIMEOUT
+    if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
+    return true
+  end
+
   if not self.auto_record then return false end
   if self.state == 'finalizing' then return false end
   if self.state ~= 'recording' then
@@ -520,8 +624,17 @@ function Engine:signal_trigger()
   return true
 end
 
---- Feeds each metered level into the silence countdown.
+--- Feeds each metered level into Auto or Signal Session silence tracking.
 function Engine:_note_level(level)
+  if self.signal_record and self.state == 'recording' and self.signal_active then
+    if level >= self.silence_level then
+      self.signal_heard = true
+      self.signal_quiet_since = nil
+    elseif self.signal_heard and not self.signal_quiet_since then
+      self.signal_quiet_since = self.api.time_precise()
+    end
+    return
+  end
   if not self.auto_active then return end
   if level >= self.silence_level then
     self.auto_heard = true
@@ -531,23 +644,45 @@ function Engine:_note_level(level)
   end
 end
 
---[[
-  Closes an automatic take once the sound has been gone for the tail length.
-  The tail itself is kept: a reverb dying away is part of the recording.
-]]
 function Engine:_poll_auto_stop()
-  if self.state ~= 'recording' or not self.auto_active then return end
+  if self.state ~= 'recording' then return end
   local now = self.api.time_precise()
 
-  if self.auto_heard then
-    if self.auto_quiet_since and now - self.auto_quiet_since >= self.tail_seconds then
-      self:stop()
+  if self.signal_record then
+    if not self.signal_active then return end
+    if self.signal_heard then
+      if self.signal_quiet_since and now - self.signal_quiet_since >= self.tail_seconds then
+        -- Do not finalize. Freeze the capture clock here. The next trigger
+        -- unpauses it and therefore appends directly after this tail.
+        if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(true) end
+        if self.signal_segment then
+          self.signal_segment.file_end = self:elapsed()
+          self.signal_segment.wall_end = now
+          self.signal_segment = nil
+        end
+        self.signal_active = false
+        self.signal_heard = false
+        self.signal_quiet_since = nil
+      end
+    elseif now >= (self.auto_deadline or 0) then
+      -- Trigger made no sound: return to waiting rather than closing the whole
+      -- session. This is important for muted/empty S-Layer iterations.
+      if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(true) end
+      if self.signal_segment then
+        self.signal_segment.file_end = self:elapsed()
+        self.signal_segment.wall_end = now
+        self.signal_segment = nil
+      end
+      self.signal_active = false
     end
     return
   end
 
-  -- Nothing was ever heard. Something upstream is muted or the sample failed
-  -- to load, and leaving the recorder running would be worse than saying so.
+  if not self.auto_active then return end
+  if self.auto_heard then
+    if self.auto_quiet_since and now - self.auto_quiet_since >= self.tail_seconds then self:stop() end
+    return
+  end
   if now >= (self.auto_deadline or 0) then
     self:_notify('nothing was heard after the trigger, so the take was closed')
     self:stop()
@@ -556,11 +691,25 @@ end
 
 function Engine:set_auto_record(on)
   self.auto_record = on and true or false
+  if self.auto_record then self.signal_record = false end
   if not self.auto_record then self.auto_active = false end
 end
 
-function Engine:auto_recording()
-  return self.auto_active == true and self.state == 'recording'
+function Engine:set_signal_record(on)
+  on = on and true or false
+  if self.state == 'recording' then return false end
+  self.signal_record = on
+  if on then self:set_auto_record(false); self.signal_record = true end
+  return true
+end
+
+function Engine:auto_recording() return self.auto_active == true and self.state == 'recording' end
+function Engine:signal_recording() return self.signal_record == true and self.state == 'recording' end
+function Engine:capture_status()
+  if self.backend ~= 'buffer' then return 'transport' end
+  if self.capture_lost then return 'lost' end
+  if self.buffer_confirmed then return 'ready' end
+  return 'connecting'
 end
 
 --- Buckets captured so far. Empty unless a take is being written.
@@ -677,6 +826,8 @@ function Engine:start()
   self.error = nil
   self.notice = nil
   self.master_fallback = false
+  self.final_live_peaks = nil
+  self.final_live_ceiling = nil
 
   if self.state == 'finalizing' then
     self.error = 'still writing the last take'
@@ -696,6 +847,11 @@ function Engine:start()
   self.auto_active = false
   self.auto_heard = false
   self.auto_quiet_since = nil
+  self.signal_active = false
+  self.signal_heard = false
+  self.signal_quiet_since = nil
+  self.signal_segments = {}
+  self.signal_segment = nil
   self:stop_preview()
   -- The previous take gives way to the live strip; its file stays on disk.
   self.current = nil
@@ -714,6 +870,7 @@ function Engine:start()
     self.seen_recording = true
     self.transport_elapsed = nil
     self.pass_length = 0
+    if self.signal_record and self.buffer then self.buffer:set_paused(true) end
     return true
   end
 
@@ -747,11 +904,30 @@ function Engine:stop()
   if self.state ~= 'recording' then return false end
   local R = self.api
 
+  -- What was visible during recording is valuable state in its own right.
+  -- Capture it BEFORE any buffer/export/finalize transition. This makes Stop
+  -- incapable of visually erasing a valid recording merely because REAPER's
+  -- new WAV/peak cache is momentarily unavailable.
+  self:_snapshot_live_waveform()
+
   self.pass_length = self:elapsed()
   self.auto_active = false
+  if self.signal_record and self.signal_segment then
+    self.signal_segment.file_end = self.pass_length
+    self.signal_segment.wall_end = R.time_precise()
+    self.signal_segment = nil
+  end
+  self.signal_active = false
 
   if self.backend == 'buffer' then
-    local frames = self.buffer:frames() - (self.start_frame or 0)
+    -- Stop means the marked take must become immutable immediately.  Previously
+    -- Signal Session only cleared signal_active here; if Stop was pressed while
+    -- CAPTURING, the JSFX ring continued writing throughout finalization.  A
+    -- multi-chunk export could therefore be reading a moving/overwriting ring.
+    -- Freeze first, then snapshot the absolute end frame exactly once.
+    if self.buffer then self.buffer:set_paused(true) end
+    local stop_frame = self.buffer:frames()
+    local frames = stop_frame - (self.start_frame or 0)
     local capacity = self.buffer:capacity_frames()
     if frames > capacity then
       frames = capacity
@@ -759,6 +935,7 @@ function Engine:stop()
         self.buffer:capacity_seconds()))
     end
     if frames <= 0 then
+      if self.buffer then self.buffer:set_paused(false) end
       self.state = 'idle'
       self.error = 'nothing was captured'
       return true
@@ -766,14 +943,44 @@ function Engine:stop()
     -- Where the first exported frame sits on the wall clock. Counting back from
     -- now over the frames actually kept is right for a normal pass and for
     -- grab_last, which reaches backwards into buffer the plug-in already held.
-    self.pending_anchor = R.time_precise() - frames / math.max(self.buffer:srate(), 1)
+    if self.signal_record and self.signal_segments[1] then
+      self.pending_anchor = self.signal_segments[1].wall_start
+    else
+      self.pending_anchor = R.time_precise() - frames / math.max(self.buffer:srate(), 1)
+    end
     -- The exported item lands on the hidden track, where finalizing reads its
     -- file and throws the item away, exactly as it does for a recorded pass.
     self.saved_selection = self:_save_item_selection()
-    self.export_serial = self.buffer:request_export(
-      self.buffer:frames() - frames, frames, self:_track_index())
+    -- Long buffer takes are exported in bounded pieces.  The old monolithic
+    -- export could create a correctly-sized item whose samples stopped after
+    -- the JSFX contiguous memory window.  Each piece is small, then REAPER
+    -- glues the pieces into one ordinary WAV before the recorder exposes it.
+    local rate = math.max(self.buffer:srate() or 0, 1)
+    local chunk_frames = math.min(math.floor(rate * EXPORT_CHUNK_SECONDS), EXPORT_CHUNK_MAX_FRAMES)
+    chunk_frames = math.max(chunk_frames, 16384)
+    self.export_plan = {
+      -- Both ends are based on the frozen stop-frame snapshot.  Never ask
+      -- frames() again while this export is in flight.
+      start_frame = stop_frame - frames,
+      stop_frame = stop_frame,
+      total_frames = frames,
+      done_frames = 0,
+      chunk_frames = chunk_frames,
+      rate = rate,
+      items = {},
+      before_count = R.CountTrackMediaItems(self.track),
+      current_request_frames = 0,
+    }
+    local first_len = math.min(chunk_frames, frames)
+    self.export_plan.current_request_frames = first_len
+    -- Do not let a one-frame buffer availability race destroy the take.  The
+    -- finalizer owns export requests and will retry this exact chunk until the
+    -- capture plug-in is alive again or EXPORT_TIMEOUT genuinely expires.
+    self.export_serial = nil
+    self.export_wait_started = R.time_precise()
+    self.export_last_recover = 0
     self.state = 'finalizing'
-    self.finalize_started = R.time_precise()
+    self.finalize_started = self.export_wait_started
     return true
   end
 
@@ -1019,6 +1226,49 @@ function Engine:_poll_finalize()
     return
   end
 
+  -- A buffer export request can legitimately fail to acquire the capture JSFX
+  -- for a single UI frame.  Never interpret that transient nil as an empty take.
+  -- Keep the export plan intact and retry the SAME chunk.  This applies both to
+  -- the first chunk after Stop and to every later chunk of a long recording.
+  if self.export_plan and not self.export_serial then
+    local plan = self.export_plan
+    local now = R.time_precise()
+    self.export_wait_started = self.export_wait_started or now
+
+    -- Best-effort recovery is intentionally non-destructive: it re-enables the
+    -- existing capture instance and therefore preserves its ring buffer.
+    if now - (self.export_last_recover or 0) >= 0.25 then
+      if self.buffer and self.buffer.recover then pcall(self.buffer.recover, self.buffer) end
+      self.export_last_recover = now
+    end
+
+    local left = math.max(plan.total_frames - plan.done_frames, 0)
+    if left > 0 then
+      local n = plan.current_request_frames
+      if not n or n <= 0 then
+        n = math.min(plan.chunk_frames, left)
+        plan.current_request_frames = n
+      end
+      local ok, serial = pcall(self.buffer.request_export, self.buffer,
+        plan.start_frame + plan.done_frames, n, self:_track_index())
+      if ok and serial then
+        self.export_serial = serial
+        self.export_wait_started = nil
+        self.finalize_started = now
+        return
+      end
+    end
+
+    if now - self.export_wait_started > EXPORT_TIMEOUT then
+      self.export_plan = nil
+      self:_restore_item_selection()
+      self.state = 'idle'
+      self.error = 'the capture plug-in did not answer while exporting; recording was kept in the live buffer'
+      if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
+    end
+    return
+  end
+
   -- The plug-in writes the file from its own thread, which REAPER services at
   -- its own pace, so wait to be told the export finished before going looking
   -- for an item.
@@ -1030,24 +1280,100 @@ function Engine:_poll_finalize()
         self:_restore_item_selection()
         self.state = 'idle'
         self.error = 'the capture plug-in did not answer'
+        if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
       end
       return
     end
     self.export_serial = nil
-    -- Peak extraction gets its own budget now the export is actually done.
-    self.finalize_started = R.time_precise()
     if done == false then
+      self.export_plan = nil
       self:_restore_item_selection()
       self.state = 'idle'
       self.error = 'nothing left in the capture buffer to export'
+      if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
       return
     end
+
+    -- A successful chunk inserts exactly one item on the hidden recorder track.
+    -- Put it immediately after the previous chunk on a zero-based scratch
+    -- timeline, then request the next piece.  Once all pieces exist, glue them
+    -- so preview, Restore Settings and drag-to-arrange all reference one file.
+    if self.export_plan then
+      local plan = self.export_plan
+      local count = R.CountTrackMediaItems(self.track)
+
+      -- export_buffer_to_project() does NOT guarantee that the newly-created
+      -- item is the last item returned by GetTrackMediaItem().  After we move
+      -- chunk 1 to time zero, later exports can be inserted earlier on the
+      -- scratch track, causing `count - 1` to keep returning an OLD chunk.
+      -- That made long recordings glue down to roughly one export chunk
+      -- (~20-22 seconds) even though every chunk had actually been exported.
+      --
+      -- Identify the genuinely new MediaItem by excluding every pointer already
+      -- accepted into this export plan.
+      local known = {}
+      for _, old_item in ipairs(plan.items) do known[old_item] = true end
+
+      local item = nil
+      for i = 0, count - 1 do
+        local candidate = R.GetTrackMediaItem(self.track, i)
+        if candidate and not known[candidate] then
+          item = candidate
+          break
+        end
+      end
+
+      if item then
+        local chunk_len = R.GetMediaItemInfo_Value(item, 'D_LENGTH') or 0
+        R.SetMediaItemInfo_Value(item, 'D_POSITION', plan.done_frames / plan.rate)
+        plan.items[#plan.items + 1] = item
+        -- Advance by the exact frame count requested, not by the media item's
+        -- rounded floating-point duration, so chunk boundaries can never drift.
+        local chunk_frames = plan.current_request_frames or math.floor(chunk_len * plan.rate + 0.5)
+        plan.done_frames = math.min(plan.total_frames, plan.done_frames + chunk_frames)
+      else
+        -- A completed export without a new item must not advance the plan.  If
+        -- REAPER has not exposed the item yet, retry the same chunk rather than
+        -- silently substituting an older one.
+        self.export_serial = nil
+        self.export_wait_started = R.time_precise()
+        self.finalize_started = self.export_wait_started
+        return
+      end
+
+      if plan.done_frames < plan.total_frames then
+        local left = plan.total_frames - plan.done_frames
+        local n = math.min(plan.chunk_frames, left)
+        plan.current_request_frames = n
+        -- Leave the request to the retry block at the top of _poll_finalize().
+        -- If the buffer is transiently unavailable, the plan and all completed
+        -- chunks remain intact instead of falling through to an empty waveform.
+        self.export_serial = nil
+        self.export_wait_started = R.time_precise()
+        self.finalize_started = self.export_wait_started
+        return
+      end
+
+      if #plan.items > 1 then
+        -- Glue only our temporary chunks; preserve the user's item selection.
+        if self:_has('SelectAllMediaItems') then R.SelectAllMediaItems(0, false) end
+        for _, it in ipairs(plan.items) do
+          if R.ValidatePtr2(0, it, 'MediaItem*') then R.SetMediaItemSelected(it, true) end
+        end
+        R.Main_OnCommand(ACTION_GLUE_ITEMS, 0)
+      end
+      self.export_plan = nil
+    end
+
+    -- Peak extraction gets its own budget now the complete/glued export exists.
+    self.finalize_started = R.time_precise()
   end
 
   if R.CountTrackMediaItems(self.track) == 0 then
     if R.time_precise() - (self.finalize_started or 0) > PEAK_TIMEOUT then
       self.state = 'idle'
       self.error = 'nothing was recorded'
+      if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
     end
     return
   end
@@ -1067,14 +1393,37 @@ function Engine:_poll_finalize()
   local timed_out = R.time_precise() - (self.finalize_started or 0) > PEAK_TIMEOUT
   if not peaks and not timed_out then return end
 
+  -- Do not replace a waveform the user just recorded with an empty strip.
+  -- Normally the blue waveform comes from the finalized WAV. If REAPER cannot
+  -- expose fresh-file peaks within the timeout, present the exact live waveform
+  -- snapshot until/if the user chooses Rebuild waveform.
+  local display_peaks = peaks
+  local peaks_from_live = false
+  if not display_peaks or #display_peaks == 0 then
+    display_peaks = self.final_live_peaks or {}
+    peaks_from_live = #display_peaks > 0
+  end
+
   self.take_count = self.take_count + 1
   self.current = {
     index = self.take_count,
     path = path,
     length = length,
-    peaks = peaks or {},
+    peaks = display_peaks,
+    peaks_from_live = peaks_from_live,
     name = Util.take_name(self.name_prefix, self.take_count),
     anchor = self.pending_anchor,
+    timeline_map = (function()
+      if not self.signal_record or #self.signal_segments == 0 then return nil end
+      local out = {}
+      for i,seg in ipairs(self.signal_segments) do
+        out[i] = {
+          file_start = seg.file_start or 0, file_end = seg.file_end or length,
+          wall_start = seg.wall_start, wall_end = seg.wall_end
+        }
+      end
+      return out
+    end)(),
   }
   self.pending_anchor = nil
   self.section = nil
@@ -1082,6 +1431,9 @@ function Engine:_poll_finalize()
   self:_clear_items()
   self:_restore_item_selection()
   self.state = 'ready'
+  self.export_wait_started = nil
+  self.export_last_recover = nil
+  if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
   R.UpdateArrange()
 end
 
@@ -1125,9 +1477,9 @@ end
 function Engine:tick()
   -- The capture buffer is only useful if it has been filling before Record is
   -- pressed, so it is brought up as soon as the strip is on screen.
-  if self.backend == 'buffer' and self.state == 'idle' then
+  if self.backend == 'buffer' then
     if not (self.buffer and self.buffer.attached) then
-      self:_ensure_capture()
+      if self.state ~= 'recording' then self:_ensure_capture() end
     else
       self:_watch_capture()
     end
@@ -1166,9 +1518,33 @@ end
   could not work one out.
 ]]
 function Engine:wall_time_at(position)
-  if not (self.current and self.current.anchor) then return nil end
+  if not self.current then return nil end
   local length = self.current.length or 0
-  return self.current.anchor + Util.clamp(position or 0, 0, length)
+  local pos = Util.clamp(position or 0, 0, length)
+
+  -- Signal Session removes wall-clock silence from the file. Use the segment
+  -- map captured as the session ran so a click at (say) 31 s in the compact WAV
+  -- resolves to the shot that really produced that audio, even if minutes passed
+  -- between earlier iterations.
+  local map = self.current.timeline_map
+  if map and #map > 0 then
+    local chosen = map[#map]
+    for _,seg in ipairs(map) do
+      local a = seg.file_start or 0
+      local b = seg.file_end or a
+      if pos >= a and pos <= b + 0.000001 then chosen = seg; break end
+      if pos < a then chosen = seg; break end
+    end
+    if chosen and chosen.wall_start then
+      local a = chosen.file_start or 0
+      local b = chosen.file_end or a
+      local local_pos = Util.clamp(pos - a, 0, math.max(b - a, 0))
+      return chosen.wall_start + local_pos
+    end
+  end
+
+  if not self.current.anchor then return nil end
+  return self.current.anchor + pos
 end
 
 function Engine:discard()

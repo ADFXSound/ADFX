@@ -1,7 +1,3 @@
--- @description ADFX_Tab to Previous Transient
--- @version 2.0.0
--- @author ADFXSound
-
 --[[
   ADFX: Tab to Previous Transient
   Select and move to the previous item, set loop points to that selection,

@@ -5,6 +5,11 @@
 --[[
   ADFX_Recorder.lua  —  shared output recorder strip for the ADFX tools
   ----------------------------------------------------------------------------
+  v1.7.6: guarded Stop -> Record against rapid/double mouse clicks.
+  ----------------------------------------------------------------------------
+  v1.7.5: Signal status flashes independently; AUDIO/time remains steady.
+  v1.6.2: Signal Session live/final waveform timeline parity and compact-time restore mapping.
+  v1.6.1: clarified Signal Session timing/waveform labels and renamed the buffer grab action.
   v1.5.2: enlarged the waveform strip and removed the unused idle bottom padding.
   v1.5.1: removed the redundant RECORDER title row and reclaimed its vertical space.
 
@@ -65,7 +70,7 @@ local Engine = dofile(MODULE_DIR .. 'ADFX_Recorder_Engine.lua')
 
 local Recorder = {}
 Recorder.__index = Recorder
-Recorder.VERSION = '1.5.2'
+Recorder.VERSION = '1.7.6'
 Recorder.Util = Util
 Recorder.Engine = Engine
 
@@ -85,6 +90,8 @@ local COL = {
   text_dim   = 0x7C8695FF,
   text_warn  = 0xE7A33EFF,
   playhead   = 0xFFD166FF,
+  status_rec = 0x35D04FFF,
+  status_wait= 0xFF3B30FF,
 }
 
 local MIN_DRAG_PX = 4.0
@@ -141,6 +148,9 @@ function Recorder.new(opts)
   self.grab_seconds = opts.grab_seconds or 10
   -- Only worth offering to a host that actually calls signal_trigger().
   self.allow_auto_record = opts.allow_auto_record == true or opts.auto_record == true
+  -- Signal Session can be exposed independently of Auto. Existing hosts that
+  -- expose Auto keep Signal too for backwards compatibility.
+  self.allow_signal_record = opts.allow_signal_record == true or self.allow_auto_record
   self.on_insert = opts.on_insert
   -- Host-supplied menu entries, appended under their own separator. Each is
   -- { label, enabled = bool or function(), action = function(time) }, where
@@ -160,12 +170,16 @@ function Recorder.new(opts)
     cleanup_on_exit = opts.cleanup_on_exit,
     rec_mode = opts.rec_mode,
     auto_record = opts.auto_record,
+    signal_record = opts.signal_record,
     silence_level = opts.silence_level,
     tail_seconds = opts.tail_seconds,
   })
   self.popup_id = 'adfx_recorder_menu_' .. self.id
   self.message = nil
   self.message_until = 0
+  -- Prevent the release/second click of a fast Stop click from immediately
+  -- landing on the Record button after its label/state changes.
+  self.record_guard_until = 0
   return self
 end
 
@@ -203,6 +217,19 @@ function Recorder:recording() return self.engine.current end
   so it is safe to call unconditionally from a trigger path.
 ]]
 function Recorder:signal_trigger() return self.engine:signal_trigger() end
+function Recorder:set_auto_record(on) return self.engine:set_auto_record(on) end
+function Recorder:auto_enabled() return self.engine.auto_record == true end
+function Recorder:set_signal_record(on) return self.engine:set_signal_record(on) end
+function Recorder:signal_enabled() return self.engine.signal_record == true end
+function Recorder:capture_status() return self.engine:capture_status() end
+
+-- Drive non-UI recorder work when a host window is collapsed. draw() still
+-- calls this while visible; hosts should call tick() only on hidden frames.
+function Recorder:tick()
+  self.engine:tick()
+  local notice = self.engine:take_notice()
+  if notice then self:_notify(notice) end
+end
 
 function Recorder:shutdown()
   self.engine:shutdown()
@@ -290,7 +317,8 @@ function Recorder:_draw_placeholder(dl, x, y, w, h)
       IM.DrawList_AddLine(dl, x, mid, x + w, mid, COL.wave_rec, 1.0)
     end
     local peak_db = engine:live_peak_db()
-    local caption = string.format('Recording  %s   %s', Util.format_time(engine:elapsed()),
+    local mode = engine.signal_record and (engine.signal_active and 'Signal Session · CAPTURING' or 'Signal Session · WAITING') or 'Recording'
+    local caption = string.format('%s   AUDIO %s   %s', mode, Util.format_time(engine:elapsed()),
       peak_db and string.format('peak %.1f dB', peak_db) or 'waiting for signal')
     IM.DrawList_AddText(dl, x + 8, y + 6, COL.text, caption)
     return
@@ -518,7 +546,15 @@ function Recorder:_draw_header(ctx)
     pushed = true
   end
   if IM.Button(ctx, recording and 'Stop' or 'Record', 74, 0) then
-    engine:toggle()
+    local now = reaper.time_precise()
+    if recording then
+      -- A quick/double click on Stop can otherwise deliver its second click to
+      -- Record on the next frame. Stop immediately, then briefly guard Record.
+      engine:stop()
+      self.record_guard_until = now + 0.35
+    elseif now >= (self.record_guard_until or 0) then
+      engine:start()
+    end
     if engine.error then self:_notify(engine.error) end
   end
   if pushed then IM.PopStyleColor(ctx, 2) end
@@ -542,13 +578,52 @@ function Recorder:_draw_header(ctx)
     end
   end
 
+  if self.allow_signal_record then
+    IM.SameLine(ctx)
+    local sig = engine.signal_record
+    if sig then
+      IM.PushStyleColor(ctx, col_button, 0x315D82FF)
+      IM.PushStyleColor(ctx, col_hovered, 0x3E76A4FF)
+    end
+    if IM.SmallButton(ctx, sig and 'Signal: On' or 'Signal: Off') then
+      if not engine:set_signal_record(not sig) then self:_notify('Stop the current take before changing Signal mode') end
+    end
+    if sig then IM.PopStyleColor(ctx, 2) end
+    if IM.IsItemHovered(ctx) then
+      IM.SetTooltip(ctx, 'Signal Session: press Record once, then trigger sounds normally.\n\n' ..
+        'The capture buffer pauses after the tail and wakes on the next trigger,\n' ..
+        'so long real-world pauses are omitted and every iteration is appended\n' ..
+        'to one compact WAV. Press Stop to finalize the session.')
+    end
+  end
+
   IM.SameLine(ctx)
   if recording then
-    IM.TextColored(ctx, COL.wave_rec, Util.format_time(engine:elapsed()))
+    if engine.signal_record then
+      -- Signal Session status: flash green while audio is actively being captured,
+      -- and flash red while the armed session is waiting for the next signal.
+      local active = engine.signal_active
+      local state = active and 'RECORDING' or 'WAITING'
+      local base_col = active and COL.status_rec or COL.status_wait
+      local now = (reaper.time_precise and reaper.time_precise()) or os.clock()
+      local pulse = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(now * math.pi * 2.0))
+      local rgb = base_col >> 8
+      local r = math.floor(((rgb >> 16) & 0xFF) * pulse + 0.5)
+      local g = math.floor(((rgb >> 8) & 0xFF) * pulse + 0.5)
+      local b = math.floor((rgb & 0xFF) * pulse + 0.5)
+      local flash_col = (r << 24) | (g << 16) | (b << 8) | 0xFF
+      -- Only the state word flashes. Keep the separator, AUDIO label and timer
+      -- at a steady color so the recording duration remains easy to read.
+      IM.TextColored(ctx, flash_col, state)
+      IM.SameLine(ctx, 0, 0)
+      IM.TextColored(ctx, COL.wave_rec, string.format('  ·  AUDIO %s', Util.format_time(engine:elapsed())))
+    else
+      IM.TextColored(ctx, COL.wave_rec, 'AUDIO ' .. Util.format_time(engine:elapsed()))
+    end
   elseif engine.state == 'finalizing' then
     IM.TextColored(ctx, COL.text_dim, 'Rendering peaks…')
   elseif engine.current then
-    IM.TextColored(ctx, COL.text, string.format('%s  %s',
+    IM.TextColored(ctx, COL.text, string.format('FILE %s  ·  %s',
       Util.format_duration(engine.current.length),
       Util.short_name(engine.current.path, 28)))
     -- The strip only has room for the file name, but where the file went is
@@ -578,7 +653,7 @@ function Recorder:_draw_header(ctx)
     -- The buffer has been filling since the strip opened, so the last few
     -- seconds can be lifted out of it without having pressed Record first.
     IM.SameLine(ctx)
-    if IM.SmallButton(ctx, string.format('Last %ds', self.grab_seconds)) then
+    if IM.SmallButton(ctx, string.format('Grab Last %ds', self.grab_seconds)) then
       if not engine:grab_last(self.grab_seconds) and engine.error then
         self:_notify(engine.error)
       end
@@ -639,12 +714,7 @@ function Recorder:draw(ctx, opts)
 
   opts = opts or {}
   local height = opts.height or self.height
-  self.engine:tick()
-
-  -- Something the engine needs to explain, such as REAPER ending a pass on its
-  -- own. Drained every frame, because these happen long after Record was hit.
-  local notice = self.engine:take_notice()
-  if notice then self:_notify(notice) end
+  self:tick()
 
   IM.Separator(ctx)
   self:_draw_header(ctx)

@@ -19,7 +19,7 @@
 
 local Buffer = {}
 Buffer.__index = Buffer
-Buffer.VERSION = '1.2.1'
+Buffer.VERSION = '1.4.0'
 
 Buffer.GMEM_NAME = 'ADFX_Recorder'
 Buffer.FX_NAME = 'ADFX_Recorder_Capture'
@@ -246,6 +246,19 @@ function Buffer:set_paused(paused)
   self:_write(F_PAUSE, paused and 1 or 0)
 end
 
+-- Best-effort recovery that keeps the existing JSFX instance (and therefore its
+-- ring buffer) alive. This is deliberately less destructive than detach/attach.
+function Buffer:recover()
+  if not self.track or self.fx == nil or not self.api.ValidatePtr2(0, self.track, 'MediaTrack*') then
+    return false
+  end
+  if self:_has('TrackFX_SetOffline') then self.api.TrackFX_SetOffline(self.track, self.fx, false) end
+  if self:_has('TrackFX_SetEnabled') then self.api.TrackFX_SetEnabled(self.track, self.fx, true) end
+  self.api.TrackFX_SetParam(self.track, self.fx, PARAM_SLOT, self.slot or 0)
+  self.api.TrackFX_SetParam(self.track, self.fx, PARAM_SECONDS, self.seconds)
+  return true
+end
+
 --[[
   Asks the plug-in to write frames [start, start + length) onto a track.
   The copy and the export happen in the plug-in's @gfx thread, so this
@@ -279,13 +292,23 @@ end
 ]]
 for _, name in ipairs({
   'attach', 'alive', 'srate', 'frames', 'capacity_frames', 'capacity_seconds',
-  'read_peak', 'set_paused', 'request_export', 'export_done',
+  'read_peak', 'set_paused', 'recover', 'request_export', 'export_done',
 }) do
   local inner = Buffer[name]
   Buffer[name] = function(self, ...)
     self:_enter()
-    local out = table.pack(inner(self, ...))
+    local args = table.pack(...)
+    local out
+    local ok, err = xpcall(function()
+      out = table.pack(inner(self, table.unpack(args, 1, args.n)))
+    end, function(e)
+      return (debug and debug.traceback) and debug.traceback(e, 2) or tostring(e)
+    end)
+    -- gmem is global to the Lua script. Always hand it back to the host even if
+    -- a recorder operation throws, otherwise S-Layer's next note is written to
+    -- the recorder block and silently disappears.
     self:_leave()
+    if not ok then error(err, 0) end
     return table.unpack(out, 1, out.n)
   end
 end

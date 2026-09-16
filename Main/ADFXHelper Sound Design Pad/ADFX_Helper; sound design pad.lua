@@ -3,8 +3,20 @@
 -- @author ADFXSound
 
 --[[
-ADFXSound Sound Design Pad v1.0.7
+ADFXSound Sound Design Pad v1.0.10
 REAPER + ReaImGui + ADFX Varispeed JSFX + optional Windows Wacom Bridge
+
+v1.0.10:
+- Recorder Signal Session now defaults ON when Sound Design Pad opens.
+
+v1.0.9:
+- Exposes Recorder Signal Session without also exposing Auto.
+- While Signal Session is recording, each arrange PLAY start wakes capture; STOP leaves the session armed, and the next PLAY appends to the same stitched WAV.
+- Starting Signal Record while the timeline is already running also wakes capture immediately.
+
+v1.0.8:
+- Moved RELOAD JSFX from the transport footer to the top-right of the Wacom header row
+  so it no longer competes with the REC / NO ARM control.
 
 v1.0.7:
 - Renamed bundled/installed Varispeed JSFX to ADFX_Varispeed.jsfx
@@ -199,7 +211,7 @@ end
 
 package.path = r.ImGui_GetBuiltinPath() .. '/?.lua'
 local ImGui = require 'imgui' '0.10'
-local ctx = ImGui.CreateContext('ADFXHelper; sound design pad v1.0.7')
+local ctx = ImGui.CreateContext('ADFXHelper; sound design pad v1.0.10')
 -- Tab is item-to-item navigation, not ImGui widget focus. Turn off
 -- keyboard nav so Tab / Shift+Tab never walk CONFIG / PRESET buttons.
 pcall(function()
@@ -3541,6 +3553,31 @@ function BR.draw_status()
     ImGui.SameLine(ctx)
     ImGui.TextDisabled(ctx, hint)
   end
+
+  -- v1.0.8: RELOAD JSFX lives in the otherwise-unused top-right of the
+  -- performance header instead of sharing the transport row with REC / NO ARM.
+  local reload_w = ImGui.CalcTextSize(ctx, "RELOAD JSFX") + 16
+  ImGui.SameLine(ctx)
+  local right_x = ImGui.GetWindowWidth(ctx) - reload_w - 8
+  if ImGui.GetCursorPosX(ctx) < right_x then ImGui.SetCursorPosX(ctx, right_x) end
+  if ImGui.SmallButton(ctx, "RELOAD JSFX") then
+    local n, err = SE.reload_from_script()
+    if err then
+      state.status = "Could not reload ADFX Varispeed: " .. err
+    else
+      state.status = string.format(
+        "Reloaded ADFX Varispeed on %d instance%s. Restarting does not replace a compiled JSFX; this does.",
+        n, n == 1 and "" or "s")
+    end
+  end
+  if ImGui.IsItemHovered(ctx) then
+    ImGui.SetTooltip(ctx,
+      "Optional. The pad no longer overwrites Effects/ADFX on its own.\n" ..
+      "Use this only when you want the script-folder ADFX_Varispeed.jsfx\n" ..
+      "copied into Effects/ADFX and every track instance replaced.\n" ..
+      "Needed once after a JSFX update (v1.4: FOLLOW + gmem).\n" ..
+      "Or: FX window → Edit → Ctrl+S.")
+  end
 end
 
 local function refresh_preset_list()
@@ -4809,9 +4846,8 @@ function TR.draw_section()
   if state.transport.loop_selected_on_play then
     toggle_w = toggle_w + ImGui.CalcTextSize(ctx, "999 selected") + 16
   end
-  local reload_w = ImGui.CalcTextSize(ctx, "RELOAD JSFX") + 16
   local button_w = clamp(
-    (avail_w - toggle_w - reload_w - RC.BUTTON_W - 32) / 2, 46, 96)
+    (avail_w - toggle_w - RC.BUTTON_W - 24) / 2, 46, 96)
 
   if playing then
     ImGui.PushStyleColor(ctx, ImGui.Col_Button,        0x247A45FF)
@@ -4854,25 +4890,6 @@ function TR.draw_section()
     ImGui.TextDisabled(ctx, string.format("%d selected", count))
   end
 
-  ImGui.SameLine(ctx)
-  if ImGui.SmallButton(ctx, "RELOAD JSFX") then
-    local n, err = SE.reload_from_script()
-    if err then
-      state.status = "Could not reload ADFX Varispeed: " .. err
-    else
-      state.status = string.format(
-        "Reloaded ADFX Varispeed on %d instance%s. Restarting does not replace a compiled JSFX; this does.",
-        n, n == 1 and "" or "s")
-    end
-  end
-  if ImGui.IsItemHovered(ctx) then
-    ImGui.SetTooltip(ctx,
-      "Optional. The pad no longer overwrites Effects/ADFX on its own.\n" ..
-      "Use this only when you want the script-folder ADFX_Varispeed.jsfx\n" ..
-      "copied into Effects/ADFX and every track instance replaced.\n" ..
-      "Needed once after a JSFX update (v1.4: FOLLOW + gmem).\n" ..
-      "Or: FX window → Edit → Ctrl+S.")
-  end
 
   ImGui.SameLine(ctx, math.max(0, footer_w - RC.BUTTON_W))
   RC.draw_button()
@@ -5014,6 +5031,10 @@ end
 -- echoes collapse back onto the XY path, while stronger tilt fans them outward.
 -- This keeps the 5D motion readable without adding meters or dense geometry.
 local TILT_TRAIL_OFFSET_SCALE = 0.18
+-- Tilt Y needs more visual separation from the XY/pressure trace at the
+-- vertical extremes. Keep Tilt X exactly as-is and double only the orange
+-- Tilt Y ghost's display scale.
+local TILT_Y_TRAIL_SCALE = 2.0
 
 local function draw_tilt_trails(dl, sx, sy, pad_w, pad_h, now)
   local count = #xy_trail
@@ -5034,7 +5055,7 @@ local function draw_tilt_trails(dl, sx, sy, pad_w, pad_h, now)
       local tx_x = base_x + (tx - 0.5) * 2.0 * (pad_w * TILT_TRAIL_OFFSET_SCALE)
       local tx_y = base_y
       local ty_x = base_x
-      local ty_y = base_y - (ty - 0.5) * 2.0 * (pad_h * TILT_TRAIL_OFFSET_SCALE)
+      local ty_y = base_y - (ty - 0.5) * 2.0 * (pad_h * TILT_TRAIL_OFFSET_SCALE * TILT_Y_TRAIL_SCALE)
 
       -- Keep the ghosts inside the pad, including a little radius padding.
       tx_x = clamp(tx_x, sx + 3, sx + pad_w - 3)
@@ -5067,7 +5088,7 @@ local function draw_tilt_trails(dl, sx, sy, pad_w, pad_h, now)
         local pby = sy + (1.0 - prev.y) * pad_h
         local ptx_x = clamp(pbx + (ptx - 0.5) * 2.0 * (pad_w * TILT_TRAIL_OFFSET_SCALE), sx + 3, sx + pad_w - 3)
         local pty_x = clamp(pbx, sx + 3, sx + pad_w - 3)
-        local pty_y = clamp(pby - (pty - 0.5) * 2.0 * (pad_h * TILT_TRAIL_OFFSET_SCALE), sy + 3, sy + pad_h - 3)
+        local pty_y = clamp(pby - (pty - 0.5) * 2.0 * (pad_h * TILT_TRAIL_OFFSET_SCALE * TILT_Y_TRAIL_SCALE), sy + 3, sy + pad_h - 3)
 
         ImGui.DrawList_AddLine(dl, ptx_x, pby, tx_x, tx_y,
           trail_color(255, 225, 76, 8 + 38 * glow), 1.0 + 0.8 * glow)
@@ -5346,7 +5367,12 @@ do
       -- meters still looked right; the take those peaks were rebuilt from
       -- after Stop did not match the file you drag out.
       backend     = "buffer",
-      transport   = "isolated",
+      -- The pad's sound source is the arrange timeline. Signal Session stays
+      -- armed across transport stops, while each PLAY edge wakes the same
+      -- compact/stitch capture used by S-Layer.
+      transport   = "timeline",
+      allow_signal_record = true,
+      signal_record = true,
       imgui       = ImGui,
     })
     if ok and type(built) == "table" then
@@ -5422,6 +5448,35 @@ function RC.consume_space()
   return recorder:consume_space()
 end
 
+-- Recorder Signal Session follows the arrange transport for the Sound Design
+-- Pad. Unlike S-Layer, the timeline itself is the continuous source: while the
+-- arrange is rolling, keep the Signal Session awake every frame. This prevents
+-- the shared one-second silence/tail auto-stop from ending the take during a
+-- short quiet variation/gap in timeline audio. S-Layer is intentionally left
+-- unchanged and still wakes its recorder only from actual S-Layer triggers.
+local recorder_timeline_was_playing = (r.GetPlayState() & 1) == 1
+local recorder_signal_was_recording = false
+local function update_recorder_signal_from_timeline()
+  local playing = (r.GetPlayState() & 1) == 1
+  local signal_recording = false
+  if recorder and type(recorder.signal_enabled) == "function"
+    and type(recorder.is_recording) == "function" then
+    signal_recording = recorder:signal_enabled() and recorder:is_recording()
+  end
+
+  -- For Sound Design Pad, PLAY is the session gate. Reassert the signal trigger
+  -- for as long as the arrange remains rolling, rather than only on the PLAY
+  -- edge. signal_trigger() is safe to call repeatedly on an already-open Signal
+  -- Session and continually refreshes its activity/tail timer.
+  if signal_recording and playing
+    and type(recorder.signal_trigger) == "function" then
+    recorder:signal_trigger()
+  end
+
+  recorder_timeline_was_playing = playing
+  recorder_signal_was_recording = signal_recording
+end
+
 local open = true
 local function loop()
   -- Capture a genuine plugin touch before Paint Pad performs any of its own
@@ -5442,6 +5497,7 @@ local function loop()
 
   -- Before any writes, so a pass that starts this frame captures this frame.
   RC.update()
+  update_recorder_signal_from_timeline()
 
   update_modulator_assignments()
   update_amplitude_assignments()
@@ -5451,7 +5507,7 @@ local function loop()
   ImGui.SetNextWindowSize(ctx, 1480, 960, ImGui.Cond_FirstUseEver)
 
   local visible
-  visible, open = ImGui.Begin(ctx, "ADFXHelper; sound design pad v1.0.3", open, TR.NO_NAV or 0)
+  visible, open = ImGui.Begin(ctx, "ADFXHelper; sound design pad v1.0.13", open, TR.NO_NAV or 0)
   if visible then
     pcall(function()
       if ImGui.IsWindowFocused(ctx, ImGui.FocusedFlags_RootAndChildWindows) then

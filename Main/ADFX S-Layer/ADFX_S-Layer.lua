@@ -3,7 +3,7 @@
 -- @author ADFXSound
 
 --[[
-  ADFX S-Layer v0.2.63
+  ADFX S-Layer v0.2.66
   REAPER / ReaImGui prototype inspired by the workflow of Twisted Tools S-LAYER.
 
   This is an original implementation. It does not contain or redistribute S-LAYER code,
@@ -26,6 +26,15 @@
 
 
 
+
+  v0.2.68:
+    * Recorder Signal Session now defaults ON when S-Layer opens.
+
+  v0.2.64:
+    * CHOKE now stops every currently sounding S-Layer sampler voice before a new
+      shot is fired, including lanes that do not participate in the new shot
+    * added STOP ALL beside the trigger controls for immediately killing long sounds
+    * CLEAR LANES now performs STOP ALL first, so unassigned long sounds cannot keep ringing
 
   v0.2.61:
     * recorder module is now an optional dependency: if ADFX_Recorder.lua is not
@@ -272,7 +281,7 @@
 ]]
 
 local r = reaper
-local VERSION = "0.2.63"
+local VERSION = "0.2.68"
 local TITLE = "ADFX S-Layer v" .. VERSION
 local EXT_SECTION = "ADFX_SLAYER_V020"
 local OLD_EXT_SECTION = "ADFX_SLAYER_V010"
@@ -1626,7 +1635,37 @@ local function assign_selected_tracks()
     left>0 and string.format(", %d did not fit",left) or "")
 end
 
+local function stop_all_voices(set_status)
+  -- RS5K one-shots keep ringing after their short trigger note has ended, so a
+  -- normal MIDI note-off is not a reliable panic. Briefly taking only the managed
+  -- sampler offline resets its active voices while leaving the playback track and
+  -- any user FX after RS5K untouched. The loaded FILE0 assignment remains in place.
+  pending_trigger=nil
+  pending_ack=nil
+  local stopped=0
+  if tracks.layers then
+    for li=1,NUM_LAYERS do
+      local E=tracks.layers[li]
+      if E and valid_media_track(E.track) and E.rs5k and E.rs5k>=0 then
+        local ok=pcall(function()
+          r.TrackFX_SetOffline(E.track,E.rs5k,true)
+          r.TrackFX_SetOffline(E.track,E.rs5k,false)
+          r.TrackFX_SetEnabled(E.track,E.rs5k,true)
+          hide_managed_fx_windows(E.track,E.bridge,E.rs5k)
+        end)
+        if ok then stopped=stopped+1 end
+      end
+      lane_activity[li]=nil
+    end
+  end
+  if set_status ~= false then
+    status=stopped>0 and "Stopped all S-Layer voices" or "No S-Layer voices to stop"
+  end
+  return stopped
+end
+
 local function clear_lane_sources()
+  stop_all_voices(false)
   local layers=scenes[selected_scene].layers
   for li=1,NUM_LAYERS do
     local L=layers[li]
@@ -1674,6 +1713,10 @@ end
   went out at, along with the layer values that produced it. The recorder
   timestamps its take the same way, so a point in a recording can be turned
   back into the settings that made the sound at that point.
+
+  Signal Session removes silence from the recorded file. Recorder v1.6.2 keeps
+  a compact-file-time -> wall-time segment map, so right-click Restore remains
+  aligned with the exact shot even after long pauses between iterations.
 
   The journal is memory only and deliberately so: it describes this session's
   sounds, and the recorder's takes do not outlive it either.
@@ -1796,63 +1839,10 @@ local function restore_shot(shot)
   return msg
 end
 
--- Force the shared recorder into manual mode.  Older ADFX_Recorder builds keep
--- the live Auto flag in private state rather than recorder.auto_record, so simply
--- assigning that public-looking field does not necessarily change the button or
--- signal_trigger() behavior.  This helper handles both public and older private
--- layouts without requiring a particular module revision.
-local function recorder_force_auto_off()
-  if not recorder then return end
-
-  -- Preferred public API when the installed shared module provides it.
-  if type(recorder.set_auto_record)=="function" then
-    local ok=pcall(recorder.set_auto_record,recorder,false)
-    if ok then return end
-  end
-
-  local seen={}
-  local function clear_auto_in_table(t,depth)
-    if type(t)~="table" or seen[t] or depth>5 then return false end
-    seen[t]=true
-    local changed=false
-    -- The shared module has used auto_record as the semantic name since the
-    -- option was introduced.  Touch this exact key wherever its live state is
-    -- stored (instance, state table, config table, etc.).
-    if rawget(t,"auto_record")~=nil then
-      if rawget(t,"auto_record")~=false then changed=true end
-      rawset(t,"auto_record",false)
-    end
-    for _,v in pairs(t) do
-      if type(v)=="table" then
-        if clear_auto_in_table(v,depth+1) then changed=true end
-      end
-    end
-    return changed
-  end
-
-  clear_auto_in_table(recorder,0)
-
-  -- Compatibility with recorder builds that captured their state/config table
-  -- as a closure upvalue.  We do not alter arbitrary booleans: only a named
-  -- auto_record upvalue or a table containing the exact auto_record key.
-  if debug and debug.getupvalue and debug.setupvalue then
-    for _,fn in pairs(recorder) do
-      if type(fn)=="function" then
-        local i=1
-        while true do
-          local name,val=debug.getupvalue(fn,i)
-          if not name then break end
-          if name=="auto_record" and type(val)=="boolean" then
-            debug.setupvalue(fn,i,false)
-          elseif type(val)=="table" then
-            clear_auto_in_table(val,1)
-          end
-          i=i+1
-        end
-      end
-    end
-  end
-end
+-- Recorder mode is intentionally independent of restored S-Layer state.
+-- Only the next Auto-trigger is suppressed after a restore; the user's Auto/Signal
+-- preference itself is never changed.
+local suppress_next_recorder_auto=false
 
 --- Right click menu entry handed to the recorder strip.
 local function restore_from_take_position(at)
@@ -1863,11 +1853,10 @@ local function restore_from_take_position(at)
     return status
   end
 
-  -- Restoring is a diagnostic action.  Auto recording must be OFF before the
-  -- restored rack becomes active, so auditioning it cannot immediately create
-  -- another automatic take.  If Auto is already off this is a no-op.
-  recorder_force_auto_off()
-
+  -- Preserve the recorder mode. The first normal trigger after a diagnostic
+  -- restore is ignored by Auto only; Signal Session remains armed and can wake
+  -- normally because it was explicitly started by the user.
+  suppress_next_recorder_auto=true
   return restore_shot(shot)
 end
 
@@ -1881,7 +1870,19 @@ local function dispatch_pending_trigger()
   -- goes out on, so an automatic take does not open on the loading window.
   -- Auto recording belongs only to a fresh randomized/new trigger. LAST TRIGGER
   -- is a diagnostic replay and must never open a new automatic take.
-  if recorder and not pending_trigger.bypass_random then recorder:signal_trigger() end
+  if recorder and not pending_trigger.bypass_random then
+    local skip_auto = suppress_next_recorder_auto
+      and type(recorder.auto_enabled)=="function" and recorder:auto_enabled()
+    if skip_auto then
+      suppress_next_recorder_auto=false
+    else
+      local ok,err=pcall(recorder.signal_trigger,recorder)
+      if not ok then status="Recorder trigger error: "..tostring(err) end
+    end
+  end
+  -- Recorder calls temporarily borrow gmem. Re-attach defensively even when the
+  -- recorder reported an error, so the note below can never land in its block.
+  r.gmem_attach(GMEM_NAME)
   r.gmem_write(1,pending_trigger.velocity or 110)
   local fire=pending_trigger.layers
   local n=pending_trigger.count
@@ -2050,6 +2051,12 @@ local function trigger(velocity, replay_shot)
     status="Playback engine needs repair: "..tostring(reason).." (use Repair Engine once)"
     return
   end
+
+  -- CHOKE is rack-wide: every previous S-Layer voice dies before the new set is
+  -- prepared. This is deliberately stronger than RS5K Max voices=1, which only
+  -- steals a voice when that SAME lane receives another note and therefore lets
+  -- long sounds on non-firing lanes stack indefinitely.
+  if choke then stop_all_voices(false) end
 
   local scene=scenes[selected_scene]
   local bypass_random = replay_shot ~= nil
@@ -2614,10 +2621,15 @@ local function draw_main()
     r.ImGui_SetTooltip(ctx,"Replay the exact previous shot, or the rack most recently restored from the Recorder. Bypasses GLOBAL TRIGGER RANDOM and every lane's RND item selection so the same sound can be diagnosed repeatedly. Shortcut: T")
   end
   r.ImGui_SameLine(ctx)
+  if r.ImGui_Button(ctx,"STOP ALL",92,34) then stop_all_voices(true) end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"Immediately stops every currently sounding S-Layer voice and cancels any trigger waiting to fire")
+  end
+  r.ImGui_SameLine(ctx)
   local chk,chv=r.ImGui_Checkbox(ctx,"CHOKE",choke)
   if chk then choke=chv; mark_all_dirty(); mark_state_dirty() end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"On: a new TRIGGER interrupts the shot a layer is still playing\nOff: shots overlap and ring out over each other\n\nA layer that does not fire on the new trigger keeps ringing either way")
+    r.ImGui_SetTooltip(ctx,"On: every new TRIGGER stops ALL previous S-Layer voices before the new set plays\nOff: shots overlap and ring out over each other")
   end
   r.ImGui_SameLine(ctx)
   local nsel=#selected_source_tracks()
@@ -2630,7 +2642,7 @@ local function draw_main()
   r.ImGui_SameLine(ctx)
   if r.ImGui_Button(ctx,"CLEAR LANES##clear") then clear_lane_sources() end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"Unassigns the source track on all "..NUM_LAYERS.." lanes.\nEverything else about the lane is left alone")
+    r.ImGui_SetTooltip(ctx,"Stops all S-Layer voices, then unassigns the source track on all "..NUM_LAYERS.." lanes.\nEverything else about the lane is left alone")
   end
 
   -- Branding shares the transport row but is separated enough that it never
@@ -2756,6 +2768,10 @@ do
       shutdown = function() end,
       consume_space = function() return false end,
       signal_trigger = function() end,
+      tick = function() end,
+      auto_enabled = function() return false end,
+      signal_enabled = function() return false end,
+      capture_status = function() return 'unavailable' end,
     }
   end
 
@@ -2779,6 +2795,7 @@ do
         host_gmem   = GMEM_NAME,
         allow_auto_record = true,
         auto_record = false,
+        signal_record = true,
         transport   = "isolated",
         menu_items  = {
           {
@@ -2795,6 +2812,20 @@ do
       end
     end
   end
+end
+
+
+local recorder_capture_last=nil
+local function update_recorder_capture_status()
+  if not recorder or type(recorder.capture_status)~="function" then return end
+  local ok,st=pcall(recorder.capture_status,recorder)
+  if not ok or not st or st==recorder_capture_last then return end
+  local old=recorder_capture_last
+  recorder_capture_last=st
+  if st=="lost" then status="Recorder Lost - attempting recovery"
+  elseif st=="ready" and old=="lost" then status="Recorder Recovered"
+  elseif st=="ready" and old~=nil then status="Recorder Ready"
+  elseif st=="transport" then status="Recorder capture unavailable - transport fallback active" end
 end
 
 local function loop()
@@ -2877,7 +2908,12 @@ local function loop()
       end
     end
     r.ImGui_End(ctx)
+  else
+    -- Recorder health/finalization must continue even while the S-Layer window
+    -- is collapsed. Recorder:draw() owns tick() on visible frames.
+    if recorder and type(recorder.tick)=="function" then recorder:tick() end
   end
+  update_recorder_capture_status()
   dispatch_pending_trigger()
   verify_trigger_ack()
   apply_runtime(false)
