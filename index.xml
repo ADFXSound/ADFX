@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" commit="eaf9852f264380df9b74afc464801c4503139ff7">
+<index version="1" commit="da88d3afc9f776fdf798a2b756df0a71b066cbfd">
   <category name="Main">
     <reapack name="ADFX_Helper; add specific plugin to selected track.lua" type="script" desc="ADFX_Helper; add specific plugin to selected track">
       <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
@@ -172,7 +172,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFX_Helper;%20detect%20tempo.lua</source>
       </version>
     </reapack>
-    <reapack name="ADFX_Helper; explode takes to tracks.lua" type="script" desc="Takes: Explode takes of items across tracks">
+    <reapack name="ADFX_Helper; explode takes to tracks.lua" type="script" desc="ADFX_Helper; Explode takes of items across tracks">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
 {\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
@@ -185,8 +185,8 @@
 }
 ]]></description>
       </metadata>
-      <version name="1.2" author="Claude" time="2026-09-15T12:20:44Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/912a4eaa8aade369943be46f7acbee50a8f7bc32/Main/ADFX_Helper;%20explode%20takes%20to%20tracks.lua</source>
+      <version name="1.2" author="ADFXSound" time="2026-09-15T12:20:44Z">
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/da88d3afc9f776fdf798a2b756df0a71b066cbfd/Main/ADFX_Helper;%20explode%20takes%20to%20tracks.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Helper; export selected items.lua" type="script" desc="ADFX_Helper; export selected items">
