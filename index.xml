@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" commit="2421048ba7cec54597214e1dd185872b9f6609aa">
+<index version="1" commit="3c1caf63f63cec41d10c0c9d8ad24526072b835f">
   <category name="Main">
     <reapack name="ADFX_Helper; add specific plugin to selected track.lua" type="script" desc="ADFX_Helper; add specific plugin to selected track">
       <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
@@ -625,38 +625,9 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFX_Item;%20togglemute.lua</source>
       </version>
     </reapack>
-    <reapack name="ADFX_Item; Unselect all items to left of time selection(`).lua" type="script" desc="ADFX_Item; Unselect all items to left of time selection(`)">
-      <metadata/>
-      <version name="1.02" author="Archie" time="2026-09-15T12:20:44Z">
-        <changelog><![CDATA[+  initialе / v.1.0 [01042019]]]></changelog>
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/912a4eaa8aade369943be46f7acbee50a8f7bc32/Main/ADFX_Item;%20Unselect%20all%20items%20to%20left%20of%20time%20selection(%60).lua</source>
-      </version>
-      <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFX_Item;%20Unselect%20all%20items%20to%20left%20of%20time%20selection(%60).lua</source>
-      </version>
-      <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFX_Item;%20Unselect%20all%20items%20to%20left%20of%20time%20selection(%60).lua</source>
-      </version>
-    </reapack>
-    <reapack name="ADFX_Item; Unselect all items to right of time selection(`).lua" type="script" desc="ADFX_Item; Unselect all items to right of time selection(`)">
-      <metadata/>
-      <version name="1.02" author="Archie" time="2026-09-15T12:20:44Z">
-        <changelog><![CDATA[+  initialе / v.1.0 [01042019]]]></changelog>
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/912a4eaa8aade369943be46f7acbee50a8f7bc32/Main/ADFX_Item;%20Unselect%20all%20items%20to%20right%20of%20time%20selection(%60).lua</source>
-      </version>
-      <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFX_Item;%20Unselect%20all%20items%20to%20right%20of%20time%20selection(%60).lua</source>
-      </version>
-      <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFX_Item;%20Unselect%20all%20items%20to%20right%20of%20time%20selection(%60).lua</source>
-      </version>
-    </reapack>
-    <reapack name="ADFX_Recorder_Demo.lua" type="script" desc="ADFX_Recorder_Demo">
-      <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFX_Recorder_Demo.lua</source>
-      </version>
-      <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFX_Recorder_Demo.lua</source>
+    <reapack name="ADFX_Recorder_Standalone.lua" type="script" desc="ADFX_Recorder_Standalone">
+      <version name="2.1.0" author="ADFXSound" time="2026-09-16T13:44:50Z">
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/ADFX_Recorder_Standalone.lua</source>
       </version>
     </reapack>
     <reapack name="ADFXHelper; return play cursor.lua" type="script" desc="ADFXHelper; return play cursor">
@@ -670,10 +641,19 @@
   </category>
   <category name="Main/ADFX Renamer Tool">
     <reapack name="ADFX_Helper; renamer tool.lua" type="script" desc="ADFX_Helper; renamer tool">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 A quick way to rename with or with sequential numbers, simple\par}
+}
+]]></description>
+      </metadata>
       <version name="1.6" author="ADFX" time="2026-09-15T12:20:44Z">
         <changelog><![CDATA[+ Reduced the default window height for a tighter layout
 + Made the name field use the available content width so it keeps clean right-side padding]]></changelog>
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/912a4eaa8aade369943be46f7acbee50a8f7bc32/Main/ADFX%20Renamer%20Tool/ADFX_Helper;%20renamer%20tool.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/ADFX%20Renamer%20Tool/ADFX_Helper;%20renamer%20tool.lua</source>
       </version>
       <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFX%20Renamer%20Tool/ADFX_Helper;%20renamer%20tool.lua</source>
@@ -689,7 +669,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
       </version>
       <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
       </version>
     </reapack>
   </category>
@@ -709,7 +689,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Helper;%20sound%20design%20pad.lua</source>
       </version>
       <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Helper;%20sound%20design%20pad.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Helper;%20sound%20design%20pad.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Tab to Previous Transient.lua" type="script" desc="ADFX_Tab to Previous Transient">
@@ -773,7 +753,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/Modules/ADFX_Recorder.lua</source>
       </version>
       <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/Modules/ADFX_Recorder.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/Modules/ADFX_Recorder.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Recorder_Buffer.lua" type="script" desc="ADFX_Recorder_Buffer">
@@ -781,7 +761,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/Modules/ADFX_Recorder_Buffer.lua</source>
       </version>
       <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/Modules/ADFX_Recorder_Buffer.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/Modules/ADFX_Recorder_Buffer.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Recorder_Engine.lua" type="script" desc="ADFX_Recorder_Engine">
@@ -789,7 +769,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/Modules/ADFX_Recorder_Engine.lua</source>
       </version>
       <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/2421048ba7cec54597214e1dd185872b9f6609aa/Main/Modules/ADFX_Recorder_Engine.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/3c1caf63f63cec41d10c0c9d8ad24526072b835f/Main/Modules/ADFX_Recorder_Engine.lua</source>
       </version>
     </reapack>
     <reapack name="ADFX_Recorder_SlotIn.lua" type="script" desc="ADFX_Recorder_SlotIn">
