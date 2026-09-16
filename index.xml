@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" commit="34dbb68d2a6bf126cfdd582be7cd41c96254ea6f">
+<index version="1" commit="50a5c21d8bbd62461bbceb96d9a6446d3f74bf8c">
   <category name="Main">
     <reapack name="ADFX_Helper; add specific plugin to selected track.lua" type="script" desc="ADFX_Helper; add specific plugin to selected track">
       <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
@@ -582,7 +582,7 @@
         <source main="main">https://github.com/ADFXSound/ADFX/raw/4de1a9d30f5bc04e26d8ca907ee4845327f1d057/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
       </version>
       <version name="2.0.0" author="ADFXSound" time="2026-09-15T14:58:11Z">
-        <source main="main">https://github.com/ADFXSound/ADFX/raw/34dbb68d2a6bf126cfdd582be7cd41c96254ea6f/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
+        <source main="main">https://github.com/ADFXSound/ADFX/raw/50a5c21d8bbd62461bbceb96d9a6446d3f74bf8c/Main/ADFX%20S-Layer/ADFX_S-Layer.lua</source>
       </version>
     </reapack>
   </category>
