@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" commit="3c1caf63f63cec41d10c0c9d8ad24526072b835f">
+<index version="1" commit="eaf9852f264380df9b74afc464801c4503139ff7">
   <category name="Main">
     <reapack name="ADFX_Helper; add specific plugin to selected track.lua" type="script" desc="ADFX_Helper; add specific plugin to selected track">
       <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
@@ -642,6 +642,9 @@
       </metadata>
       <version name="1.0" author="ADFX" time="2026-09-15T13:46:50Z">
         <source>https://github.com/ADFXSound/ADFX/raw/01396498e8b84f07c70602c205cfb86ebd408de3/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
+      </version>
+      <version name="1.1" author="ADFX" time="2026-09-16T13:56:54Z">
+        <source>https://github.com/ADFXSound/ADFX/raw/eaf9852f264380df9b74afc464801c4503139ff7/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
       </version>
     </reapack>
     <reapack name="ADFX_SLayer_Trigger.jsfx" type="effect" desc="ADFX S-Layer Trigger Bridge v0.2.7">
