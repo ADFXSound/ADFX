@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" commit="da88d3afc9f776fdf798a2b756df0a71b066cbfd">
+<index version="1" commit="aa4c9cc4c935d41d5bffb9d76abb020c18d51509">
   <category name="Main">
     <reapack name="ADFX_Helper; add specific plugin to selected track.lua" type="script" desc="ADFX_Helper; add specific plugin to selected track">
       <version name="1.0.0" author="ADFXSound" time="2026-09-15T12:36:36Z">
@@ -622,8 +622,8 @@
       </version>
     </reapack>
     <reapack name="ADFX_Varispeed.jsfx" type="effect" desc="ADFX Varispeed">
-      <version name="1.4" author="ADFX" time="2026-09-15T05:34:50Z">
-        <source>https://github.com/ADFXSound/ADFX/raw/6e699ab59c11d9ed9944a9f8696b57568b6ad2f3/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Varispeed.jsfx</source>
+      <version name="1.4" author="ADFXSound" time="2026-09-15T05:34:50Z">
+        <source>https://github.com/ADFXSound/ADFX/raw/aa4c9cc4c935d41d5bffb9d76abb020c18d51509/Main/ADFXHelper%20Sound%20Design%20Pad/ADFX_Varispeed.jsfx</source>
       </version>
     </reapack>
   </category>
@@ -643,23 +643,29 @@
       <version name="1.0" author="ADFX" time="2026-09-15T13:46:50Z">
         <source>https://github.com/ADFXSound/ADFX/raw/01396498e8b84f07c70602c205cfb86ebd408de3/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
       </version>
-      <version name="1.1" author="ADFX" time="2026-09-16T13:56:54Z">
-        <source>https://github.com/ADFXSound/ADFX/raw/eaf9852f264380df9b74afc464801c4503139ff7/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
+      <version name="1.1" author="ADFXSound" time="2026-09-16T13:56:54Z">
+        <source>https://github.com/ADFXSound/ADFX/raw/aa4c9cc4c935d41d5bffb9d76abb020c18d51509/Main/Effects/ADFX_Recorder_Capture.jsfx</source>
       </version>
     </reapack>
     <reapack name="ADFX_SLayer_Trigger.jsfx" type="effect" desc="ADFX S-Layer Trigger Bridge v0.2.7">
       <version name="1.0" author="ADFX" time="2026-09-15T13:50:47Z">
         <source>https://github.com/ADFXSound/ADFX/raw/285628d5f2aa50d2da6da1ce24268c23c9b086ac/Main/Effects/ADFX_SLayer_Trigger.jsfx</source>
       </version>
+      <version name="1.1" author="ADFXSound" time="2026-09-16T14:04:14Z">
+        <source>https://github.com/ADFXSound/ADFX/raw/aa4c9cc4c935d41d5bffb9d76abb020c18d51509/Main/Effects/ADFX_SLayer_Trigger.jsfx</source>
+      </version>
     </reapack>
     <reapack name="ADFX_Varispeed.jsfx" type="effect" desc="ADFX Varispeed">
-      <version name="1.4" author="ADFX" time="2026-09-15T13:46:50Z">
-        <source>https://github.com/ADFXSound/ADFX/raw/01396498e8b84f07c70602c205cfb86ebd408de3/Main/Effects/ADFX_Varispeed.jsfx</source>
+      <version name="1.4" author="ADFXSound" time="2026-09-15T13:46:50Z">
+        <source>https://github.com/ADFXSound/ADFX/raw/aa4c9cc4c935d41d5bffb9d76abb020c18d51509/Main/Effects/ADFX_Varispeed.jsfx</source>
       </version>
     </reapack>
     <reapack name="ADFXHelper; pitch shifter.jsfx" type="effect" desc="ADFXHelper; pitch shifter">
       <version name="1.0" author="ADFX" time="2026-09-15T13:50:47Z">
         <source>https://github.com/ADFXSound/ADFX/raw/285628d5f2aa50d2da6da1ce24268c23c9b086ac/Main/Effects/ADFXHelper;%20pitch%20shifter.jsfx</source>
+      </version>
+      <version name="1.2.5" author="ADFXSound" time="2026-09-16T14:04:14Z">
+        <source>https://github.com/ADFXSound/ADFX/raw/aa4c9cc4c935d41d5bffb9d76abb020c18d51509/Main/Effects/ADFXHelper;%20pitch%20shifter.jsfx</source>
       </version>
     </reapack>
   </category>
