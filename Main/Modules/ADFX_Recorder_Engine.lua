@@ -19,7 +19,7 @@ local Buffer = dofile(MODULE_DIR .. 'ADFX_Recorder_Buffer.lua')
 
 local Engine = {}
 Engine.__index = Engine
-Engine.VERSION = '1.7.5'
+Engine.VERSION = '1.7.6'
 
 local EXT_KEY = 'P_EXT:ADFX_RECORDER'
 local PEAK_BUCKETS = 1400
@@ -47,6 +47,11 @@ local ACTION_STOP = 1016
 local ACTION_STOP_SAVE_MEDIA = 40667
 local ACTION_TOGGLE_SNAP = 1157
 local ACTION_GLUE_ITEMS = 41588
+-- Glue that ignores an unrelated arrange time selection. 41588 will silently
+-- produce nothing (or a sliver) when a time selection does not cover the
+-- hidden scratch items, which is how a take longer than one export chunk
+-- never became playable.
+local ACTION_GLUE_ITEMS_IGNORE_TIME = 40362
 
 -- Isolated capture parks the transport this far past the end of the project,
 -- so nothing on the timeline plays into the recording.
@@ -331,8 +336,11 @@ function Engine:_watch_capture()
       pcall(self.buffer.recover, self.buffer)
     end
     -- Only recreate a dead plug-in when no take/session depends on its ring
-    -- buffer. During recording we keep retrying and make the loss visible.
-    if self.state ~= 'recording' and now - (self.capture_lost_at or now) >= CAPTURE_START_GRACE then
+    -- buffer. During recording AND finalizing we keep retrying and make the
+    -- loss visible: detaching here would destroy the frames a multi-chunk
+    -- export is still reading.
+    if self.state ~= 'recording' and self.state ~= 'finalizing'
+      and now - (self.capture_lost_at or now) >= CAPTURE_START_GRACE then
       self.buffer:detach()
       self.buffer = nil
       self.buffer_confirmed = false
@@ -377,6 +385,109 @@ function Engine:_restore_item_selection()
   for _, item in ipairs(saved) do
     if R.ValidatePtr2(0, item, 'MediaItem*') then R.SetMediaItemSelected(item, true) end
   end
+end
+
+function Engine:_save_time_selection()
+  local R = self.api
+  if not self:_has('GetSet_LoopTimeRange2') and not self:_has('GetSet_LoopTimeRange') then
+    return nil
+  end
+  local start_t, end_t
+  if self:_has('GetSet_LoopTimeRange2') then
+    start_t, end_t = R.GetSet_LoopTimeRange2(0, false, false, 0, 0, false)
+  else
+    start_t, end_t = R.GetSet_LoopTimeRange(false, false, 0, 0, false)
+  end
+  return { start = start_t or 0, finish = end_t or 0 }
+end
+
+function Engine:_restore_time_selection(saved)
+  if not saved then return end
+  local R = self.api
+  if self:_has('GetSet_LoopTimeRange2') then
+    R.GetSet_LoopTimeRange2(0, true, false, saved.start or 0, saved.finish or 0, false)
+  elseif self:_has('GetSet_LoopTimeRange') then
+    R.GetSet_LoopTimeRange(true, false, saved.start or 0, saved.finish or 0, false)
+  end
+end
+
+--- First media item on the capture track that is not already in `known`.
+function Engine:_untracked_item(known)
+  local R = self.api
+  known = known or {}
+  local count = R.CountTrackMediaItems(self.track)
+  for i = 0, count - 1 do
+    local candidate = R.GetTrackMediaItem(self.track, i)
+    if candidate and not known[candidate] then return candidate end
+  end
+  return nil
+end
+
+function Engine:_item_source_path(item)
+  local R = self.api
+  if not item then return '' end
+  local take = R.GetActiveTake(item)
+  if not take then return '' end
+  local source = R.GetMediaItemTake_Source(take)
+  if not source then return '' end
+  return Util.source_filename(R, source)
+end
+
+--[[
+  Turns the exported scratch pieces into one file the rest of the recorder
+  already knows how to preview and drag.
+
+  File-level WAV concatenation is preferred: it does not care that the capture
+  track is hidden, and it cannot be clipped by an arrange time selection.
+  Glue is the fallback for non-WAV project recording formats.
+]]
+function Engine:_merge_export_chunks(plan)
+  local R = self.api
+  if not plan or #plan.items <= 1 then return true end
+
+  local dest
+  local first_path = plan.paths and plan.paths[1]
+  if first_path and first_path ~= '' then
+    dest = Util.dirname(first_path) .. string.format('%s_merged_%03d.wav',
+      self.name_prefix, self.take_count + 1)
+  end
+
+  if dest and plan.paths and #plan.paths == #plan.items then
+    local ok, why = Util.concat_wav_files(plan.paths, dest)
+    if ok then
+      self:_clear_items()
+      local item = R.AddMediaItemToTrack(self.track)
+      local take = R.AddTakeToMediaItem(item)
+      local source = R.PCM_Source_CreateFromFile(dest)
+      if source then R.SetMediaItemTake_Source(take, source) end
+      R.SetMediaItemPosition(item, 0, false)
+      R.SetMediaItemLength(item, plan.total_frames / plan.rate, false)
+      return true
+    end
+    self:_notify(string.format('WAV merge skipped (%s) — gluing chunks instead', why or 'unknown'))
+  end
+
+  local saved_time = self:_save_time_selection()
+  local shown = false
+  if self:_has('SetMediaTrackInfo_Value') then
+    -- Glue can ignore items on a track that is hidden from the TCP.
+    R.SetMediaTrackInfo_Value(self.track, 'B_SHOWINTCP', 1)
+    shown = true
+  end
+  if self:_has('SelectAllMediaItems') then R.SelectAllMediaItems(0, false) end
+  for _, it in ipairs(plan.items) do
+    if R.ValidatePtr2(0, it, 'MediaItem*') then R.SetMediaItemSelected(it, true) end
+  end
+  if self:_has('Main_OnCommand') then
+    R.Main_OnCommand(ACTION_GLUE_ITEMS_IGNORE_TIME, 0)
+    -- Older REAPERs may only have the time-selection-aware glue.
+    if R.CountTrackMediaItems(self.track) ~= 1 then
+      R.Main_OnCommand(ACTION_GLUE_ITEMS, 0)
+    end
+  end
+  if shown then R.SetMediaTrackInfo_Value(self.track, 'B_SHOWINTCP', 0) end
+  self:_restore_time_selection(saved_time)
+  return R.CountTrackMediaItems(self.track) > 0
 end
 
 --- True when the JSFX backend is loaded and processing.
@@ -968,6 +1079,8 @@ function Engine:stop()
       chunk_frames = chunk_frames,
       rate = rate,
       items = {},
+      paths = {},
+      awaiting_item = false,
       before_count = R.CountTrackMediaItems(self.track),
       current_request_frames = 0,
     }
@@ -1226,6 +1339,55 @@ function Engine:_poll_finalize()
     return
   end
 
+  -- A finished export whose item has not appeared yet must not fire another
+  -- request. Re-exporting the same frames created duplicates or timed out
+  -- before Play/drag were enabled, which is the >1-chunk (often >10 s at
+  -- 96 kHz) failure.
+  if self.export_plan and self.export_plan.awaiting_item and not self.export_serial then
+    local plan = self.export_plan
+    local now = R.time_precise()
+    local known = {}
+    for _, old_item in ipairs(plan.items) do known[old_item] = true end
+    local item = self:_untracked_item(known)
+    if item then
+      local chunk_len = R.GetMediaItemInfo_Value(item, 'D_LENGTH') or 0
+      if self:_has('SetMediaItemInfo_Value') then
+        R.SetMediaItemInfo_Value(item, 'D_POSITION', plan.done_frames / plan.rate)
+      end
+      plan.items[#plan.items + 1] = item
+      local path = self:_item_source_path(item)
+      if path ~= '' then plan.paths[#plan.paths + 1] = path end
+      local chunk_frames = plan.current_request_frames or math.floor(chunk_len * plan.rate + 0.5)
+      plan.done_frames = math.min(plan.total_frames, plan.done_frames + chunk_frames)
+      plan.awaiting_item = false
+      self.export_wait_started = now
+      self.finalize_started = now
+
+      if plan.done_frames < plan.total_frames then
+        local left = plan.total_frames - plan.done_frames
+        plan.current_request_frames = math.min(plan.chunk_frames, left)
+      else
+        if not self:_merge_export_chunks(plan) then
+          self.export_plan = nil
+          self:_restore_item_selection()
+          self.state = 'idle'
+          self.error = 'could not join the exported recording chunks'
+          if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
+          return
+        end
+        self.export_plan = nil
+        self.finalize_started = now
+      end
+    elseif now - (self.export_wait_started or now) > EXPORT_TIMEOUT then
+      self.export_plan = nil
+      self:_restore_item_selection()
+      self.state = 'idle'
+      self.error = 'the capture plug-in exported audio but REAPER never created an item'
+      if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
+    end
+    return
+  end
+
   -- A buffer export request can legitimately fail to acquire the capture JSFX
   -- for a single UI frame.  Never interpret that transient nil as an empty take.
   -- Keep the export plan intact and retry the SAME chunk.  This applies both to
@@ -1294,75 +1456,13 @@ function Engine:_poll_finalize()
       return
     end
 
-    -- A successful chunk inserts exactly one item on the hidden recorder track.
-    -- Put it immediately after the previous chunk on a zero-based scratch
-    -- timeline, then request the next piece.  Once all pieces exist, glue them
-    -- so preview, Restore Settings and drag-to-arrange all reference one file.
+    -- Remember that this serial succeeded. The next tick looks for the new
+    -- item; it must not issue another export for the same frames.
     if self.export_plan then
-      local plan = self.export_plan
-      local count = R.CountTrackMediaItems(self.track)
-
-      -- export_buffer_to_project() does NOT guarantee that the newly-created
-      -- item is the last item returned by GetTrackMediaItem().  After we move
-      -- chunk 1 to time zero, later exports can be inserted earlier on the
-      -- scratch track, causing `count - 1` to keep returning an OLD chunk.
-      -- That made long recordings glue down to roughly one export chunk
-      -- (~20-22 seconds) even though every chunk had actually been exported.
-      --
-      -- Identify the genuinely new MediaItem by excluding every pointer already
-      -- accepted into this export plan.
-      local known = {}
-      for _, old_item in ipairs(plan.items) do known[old_item] = true end
-
-      local item = nil
-      for i = 0, count - 1 do
-        local candidate = R.GetTrackMediaItem(self.track, i)
-        if candidate and not known[candidate] then
-          item = candidate
-          break
-        end
-      end
-
-      if item then
-        local chunk_len = R.GetMediaItemInfo_Value(item, 'D_LENGTH') or 0
-        R.SetMediaItemInfo_Value(item, 'D_POSITION', plan.done_frames / plan.rate)
-        plan.items[#plan.items + 1] = item
-        -- Advance by the exact frame count requested, not by the media item's
-        -- rounded floating-point duration, so chunk boundaries can never drift.
-        local chunk_frames = plan.current_request_frames or math.floor(chunk_len * plan.rate + 0.5)
-        plan.done_frames = math.min(plan.total_frames, plan.done_frames + chunk_frames)
-      else
-        -- A completed export without a new item must not advance the plan.  If
-        -- REAPER has not exposed the item yet, retry the same chunk rather than
-        -- silently substituting an older one.
-        self.export_serial = nil
-        self.export_wait_started = R.time_precise()
-        self.finalize_started = self.export_wait_started
-        return
-      end
-
-      if plan.done_frames < plan.total_frames then
-        local left = plan.total_frames - plan.done_frames
-        local n = math.min(plan.chunk_frames, left)
-        plan.current_request_frames = n
-        -- Leave the request to the retry block at the top of _poll_finalize().
-        -- If the buffer is transiently unavailable, the plan and all completed
-        -- chunks remain intact instead of falling through to an empty waveform.
-        self.export_serial = nil
-        self.export_wait_started = R.time_precise()
-        self.finalize_started = self.export_wait_started
-        return
-      end
-
-      if #plan.items > 1 then
-        -- Glue only our temporary chunks; preserve the user's item selection.
-        if self:_has('SelectAllMediaItems') then R.SelectAllMediaItems(0, false) end
-        for _, it in ipairs(plan.items) do
-          if R.ValidatePtr2(0, it, 'MediaItem*') then R.SetMediaItemSelected(it, true) end
-        end
-        R.Main_OnCommand(ACTION_GLUE_ITEMS, 0)
-      end
-      self.export_plan = nil
+      self.export_plan.awaiting_item = true
+      self.export_wait_started = R.time_precise()
+      self.finalize_started = self.export_wait_started
+      return
     end
 
     -- Peak extraction gets its own budget now the complete/glued export exists.
@@ -1385,10 +1485,18 @@ function Engine:_poll_finalize()
   if not source then return end
 
   local length = R.GetMediaSourceLength(source)
-  if not length or length <= 0 then
+  if type(length) ~= 'number' or length <= 0 then
     length = R.GetMediaItemInfo_Value(item, 'D_LENGTH')
   end
-  local path = R.GetMediaSourceFileName(source, '')
+  local path = Util.source_filename(R, source)
+  if path == '' then
+    if R.time_precise() - (self.finalize_started or 0) > PEAK_TIMEOUT then
+      self.state = 'idle'
+      self.error = 'the exported take has no file path'
+      if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
+    end
+    return
+  end
   local peaks = self:_compute_peaks(take, length)
   local timed_out = R.time_precise() - (self.finalize_started or 0) > PEAK_TIMEOUT
   if not peaks and not timed_out then return end
@@ -1449,8 +1557,11 @@ function Engine:_poll_transport()
   if self.state ~= 'recording' then return end
   -- Nothing to watch on the buffer backend: it does not use the transport, so
   -- the user is free to play, stop and scrub while a take is being marked.
+  -- A stale heartbeat is not a dead plug-in: after pause, @block often stops
+  -- while @gfx (gfx_idle) is still able to export. Only give up if the FX is
+  -- no longer on the track.
   if self.backend == 'buffer' then
-    if not self.buffer:alive() then
+    if not (self.buffer and (self.buffer.loaded and self.buffer:loaded() or self.buffer.attached)) then
       self:stop()
       self:_notify('the capture plug-in stopped responding')
     end
@@ -1591,6 +1702,7 @@ end
 function Engine:insert(target)
   local R = self.api
   if not self.current then return nil end
+  if type(self.current.path) ~= 'string' or self.current.path == '' then return nil end
   local section = self:effective_section()
   if not section or section.len <= 0 then return nil end
 
@@ -1645,6 +1757,7 @@ end
 
 function Engine:_start_preview(from, stop_at)
   local R = self.api
+  if type(self.current.path) ~= 'string' or self.current.path == '' then return false end
   local source = R.PCM_Source_CreateFromFile(self.current.path)
   if not source then return false end
   local preview = R.CF_CreatePreview(source)

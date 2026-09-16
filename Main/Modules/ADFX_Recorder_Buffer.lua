@@ -19,7 +19,7 @@
 
 local Buffer = {}
 Buffer.__index = Buffer
-Buffer.VERSION = '1.4.0'
+Buffer.VERSION = '1.4.1'
 
 Buffer.GMEM_NAME = 'ADFX_Recorder'
 Buffer.FX_NAME = 'ADFX_Recorder_Capture'
@@ -206,9 +206,20 @@ function Buffer:detach()
   self.track, self.fx, self.slot = nil, nil, nil
 end
 
+--- True while the plug-in is still on the track, even if @block has gone
+--- idle. Exports run from @gfx (gfx_idle), so a stale heartbeat must not
+--- block a multi-chunk finalize after the transport has stopped.
+function Buffer:loaded()
+  if not self.attached or self.slot == nil then return false end
+  if not (self.track and self.api.ValidatePtr2(0, self.track, 'MediaTrack*')) then
+    return false
+  end
+  return true
+end
+
 --- True while the plug-in is loaded and processing audio.
 function Buffer:alive()
-  if not self.attached or not self.slot then return false end
+  if not self:loaded() then return false end
   if self:_read(F_PROTOCOL) ~= PROTOCOL then return false end
   return self.api.time_precise() - self:_read(F_HEARTBEAT) <= HEARTBEAT_TIMEOUT
 end
@@ -265,7 +276,9 @@ end
   returns a ticket to poll rather than a result.
 ]]
 function Buffer:request_export(start_frame, length_frames, track_index)
-  if not self:alive() then return nil end
+  -- @gfx still services exports after @block stops publishing a heartbeat,
+  -- which is the normal state once a long take is paused for finalize.
+  if not self:loaded() then return nil end
   self.serial = self.serial + 1
   self:_write(F_RESULT, 0)
   self:_write(F_START, start_frame)
@@ -280,8 +293,9 @@ end
 --- false when the plug-in refused (nothing left in the buffer to write).
 function Buffer:export_done(serial)
   if not serial then return false end
-  if self:_read(F_SERIAL_DONE) < serial then return nil end
-  return self:_read(F_RESULT) == 1
+  local done = math.floor((self:_read(F_SERIAL_DONE) or 0) + 0.5)
+  if done < serial then return nil end
+  return math.floor((self:_read(F_RESULT) or 0) + 0.5) == 1
 end
 
 --[[
@@ -291,7 +305,7 @@ end
   forgets to hand the attachment back.
 ]]
 for _, name in ipairs({
-  'attach', 'alive', 'srate', 'frames', 'capacity_frames', 'capacity_seconds',
+  'attach', 'loaded', 'alive', 'srate', 'frames', 'capacity_frames', 'capacity_seconds',
   'read_peak', 'set_paused', 'recover', 'request_export', 'export_done',
 }) do
   local inner = Buffer[name]

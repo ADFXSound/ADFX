@@ -27,6 +27,9 @@
 
 
 
+  v0.2.70:
+    * Recorder returns to normal Signal Session semantics; long-take repair now lives entirely in the shared finalizer.
+
   v0.2.68:
     * Recorder Signal Session now defaults ON when S-Layer opens.
 
@@ -281,7 +284,7 @@
 ]]
 
 local r = reaper
-local VERSION = "0.2.68"
+local VERSION = "0.2.70"
 local TITLE = "ADFX S-Layer v" .. VERSION
 local EXT_SECTION = "ADFX_SLAYER_V020"
 local OLD_EXT_SECTION = "ADFX_SLAYER_V010"
@@ -2796,6 +2799,9 @@ do
         allow_auto_record = true,
         auto_record = false,
         signal_record = true,
+        -- S-Layer needs a real-time-faithful recorder timeline for waveform
+        -- playback and Restore Settings. Record waits for the first trigger;
+        -- after that trigger capture runs continuously until Stop.
         transport   = "isolated",
         menu_items  = {
           {

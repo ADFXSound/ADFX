@@ -10,7 +10,7 @@
 
 local M = {}
 
-M.VERSION = '1.0.0'
+M.VERSION = '1.1.0'
 
 function M.clamp(v, lo, hi)
   if v < lo then return lo end
@@ -169,6 +169,150 @@ function M.take_name(prefix, index, section)
     return string.format('%s_@%.2fs', base, section.start)
   end
   return base
+end
+
+--- REAPER's GetMediaSourceFileName has returned either `filename` or
+--- `retval, filename` depending on the build. Accept both.
+function M.source_filename(api, source)
+  if not source or type(api) ~= 'table' or type(api.GetMediaSourceFileName) ~= 'function' then
+    return ''
+  end
+  local a, b = api.GetMediaSourceFileName(source, '')
+  if type(a) == 'string' and a ~= '' then return a end
+  if type(b) == 'string' and b ~= '' then return b end
+  return ''
+end
+
+local function u32le(n)
+  n = math.floor(n) % 4294967296
+  return string.char(
+    n % 256,
+    math.floor(n / 256) % 256,
+    math.floor(n / 65536) % 256,
+    math.floor(n / 16777216) % 256)
+end
+
+local function read_u32le(s, i)
+  local a, b, c, d = s:byte(i, i + 3)
+  if not d then return nil end
+  return a + b * 256 + c * 65536 + d * 16777216
+end
+
+--- Reads a standard RIFF/WAVE header and returns fmt bytes plus the data
+--- payload offset/size. Rejects RF64 and anything that is not PCM/float WAV.
+function M.read_wav_layout(path)
+  local f, err = io.open(path, 'rb')
+  if not f then return nil, err or ('cannot open ' .. tostring(path)) end
+  local header = f:read(12)
+  if not header or #header < 12 or header:sub(1, 4) ~= 'RIFF' or header:sub(9, 12) ~= 'WAVE' then
+    f:close()
+    return nil, 'not a RIFF/WAVE file'
+  end
+
+  local fmt, data_offset, data_size
+  while true do
+    local chunk = f:read(8)
+    if not chunk or #chunk < 8 then break end
+    local id = chunk:sub(1, 4)
+    local size = read_u32le(chunk, 5)
+    if not size then break end
+    local payload_pos = f:seek()
+    if id == 'fmt ' then
+      fmt = f:read(size)
+      if not fmt or #fmt < 16 then
+        f:close()
+        return nil, 'truncated fmt chunk'
+      end
+    elseif id == 'data' then
+      data_offset = payload_pos
+      data_size = size
+      f:seek('cur', size)
+    else
+      f:seek('cur', size)
+    end
+    if size % 2 == 1 then f:seek('cur', 1) end
+  end
+  f:close()
+  if not fmt or not data_offset or not data_size then
+    return nil, 'WAVE is missing fmt or data'
+  end
+  return { fmt = fmt, data_offset = data_offset, data_size = data_size }
+end
+
+--[[
+  Concatenates same-format PCM/float WAV files into one file. Used to join the
+  recorder's JSFX export chunks without depending on REAPER's Glue action,
+  which ignores hidden tracks or respects an unrelated time selection.
+
+  Returns dest on success, or nil plus a reason.
+]]
+function M.concat_wav_files(paths, dest)
+  if type(paths) ~= 'table' or #paths == 0 then return nil, 'no files' end
+  if #paths == 1 then return paths[1] end
+  if type(dest) ~= 'string' or dest == '' then return nil, 'no destination' end
+
+  local layouts = {}
+  local total = 0
+  local fmt
+  for i = 1, #paths do
+    local layout, why = M.read_wav_layout(paths[i])
+    if not layout then return nil, why end
+    if fmt then
+      if layout.fmt ~= fmt then return nil, 'WAV format mismatch between chunks' end
+    else
+      fmt = layout.fmt
+    end
+    layouts[i] = layout
+    total = total + layout.data_size
+  end
+
+  local fmt_pad = #fmt % 2
+  local data_pad = total % 2
+  local riff_size = 4 + 8 + #fmt + fmt_pad + 8 + total + data_pad
+
+  local out, err = io.open(dest, 'wb')
+  if not out then return nil, err or 'cannot write merged WAV' end
+  out:write('RIFF')
+  out:write(u32le(riff_size))
+  out:write('WAVE')
+  out:write('fmt ')
+  out:write(u32le(#fmt))
+  out:write(fmt)
+  if fmt_pad == 1 then out:write('\0') end
+  out:write('data')
+  out:write(u32le(total))
+
+  local BLOCK = 1024 * 1024
+  for i = 1, #paths do
+    local src = io.open(paths[i], 'rb')
+    if not src then
+      out:close()
+      return nil, 'cannot re-open ' .. tostring(paths[i])
+    end
+    src:seek('set', layouts[i].data_offset)
+    local left = layouts[i].data_size
+    while left > 0 do
+      local n = math.min(BLOCK, left)
+      local bytes = src:read(n)
+      if not bytes or #bytes == 0 then
+        src:close()
+        out:close()
+        return nil, 'truncated WAV data in ' .. tostring(paths[i])
+      end
+      out:write(bytes)
+      left = left - #bytes
+    end
+    src:close()
+  end
+  if data_pad == 1 then out:write('\0') end
+  out:close()
+  return dest
+end
+
+--- Directory of a file path, including the trailing separator when present.
+function M.dirname(path)
+  if type(path) ~= 'string' or path == '' then return '' end
+  return path:match('^(.*[/\\])') or ''
 end
 
 return M

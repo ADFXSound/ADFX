@@ -1,6 +1,6 @@
 desc: ADFX Recorder Capture
 author: ADFXSound
-version: 1.1
+version: 1.2
 about:
   Continuous capture buffer for the ADFX recorder strip.
 
@@ -70,7 +70,7 @@ configure = 1;
   // in one call.  Long stereo exports could create an item with the requested
   // duration but valid samples only through roughly the first memory window.
   // Keep a small fixed scratch area and let the Lua engine request consecutive
-  // chunks, then glue those chunks into one user-facing file.
+  // chunks, then join those chunks into one user-facing file.
   export_chunk_frames = floor(srate * 20);
   export_chunk_frames > 1048576 ? export_chunk_frames = 1048576;
   export_chunk_frames < 16384 ? export_chunk_frames = 16384;
@@ -99,7 +99,10 @@ configure = 1;
   gmem[base + F_SRATE] = srate;
   gmem[base + F_CAPACITY] = cap_frames;
   gmem[base + F_FRAMES] = frames;
-  gmem[base + F_RESULT] = 0;
+  // A slider/srate refresh must not wipe an in-flight export result. The Lua
+  // side polls F_RESULT after F_SERIAL_DONE advances; clearing it here made
+  // a finished chunk look like a refusal.
+  gmem[base + F_REQUEST] != 1 ? gmem[base + F_RESULT] = 0;
   configure = 0;
 );
 
@@ -130,6 +133,14 @@ peak = 0;
 // Exports have to happen here: export_buffer_to_project may only be called
 // from @gfx. options:gfx_idle is what gets this section called while the
 // plug-in window is closed, which it always is.
+//
+// Keep the slot heartbeat alive from here as well. After Stop the ring is
+// paused and the hidden capture track often stops running @block, so a
+// heartbeat written only from @block went stale and the Lua side refused
+// every chunk after the first (~10.9 s at 96 kHz).
+gmem[base + F_HEARTBEAT] = time_precise();
+gmem[base + F_FRAMES] = frames;
+
 (gmem[base + F_REQUEST] == 1 && cap_frames > 0) ? (
   want_start = gmem[base + F_START];
   want_len = gmem[base + F_LENGTH];

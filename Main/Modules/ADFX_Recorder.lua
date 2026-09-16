@@ -5,6 +5,9 @@
 --[[
   ADFX_Recorder.lua  —  shared output recorder strip for the ADFX tools
   ----------------------------------------------------------------------------
+  v1.7.7: long buffer takes (over one JSFX export chunk, ~10 s at 96 kHz)
+          now finalize into one file so Play and drag-to-timeline work.
+  ----------------------------------------------------------------------------
   v1.7.6: guarded Stop -> Record against rapid/double mouse clicks.
   ----------------------------------------------------------------------------
   v1.7.5: Signal status flashes independently; AUDIO/time remains steady.
@@ -70,7 +73,7 @@ local Engine = dofile(MODULE_DIR .. 'ADFX_Recorder_Engine.lua')
 
 local Recorder = {}
 Recorder.__index = Recorder
-Recorder.VERSION = '1.7.6'
+Recorder.VERSION = '1.7.7'
 Recorder.Util = Util
 Recorder.Engine = Engine
 
