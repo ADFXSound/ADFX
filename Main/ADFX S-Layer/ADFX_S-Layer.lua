@@ -21,6 +21,9 @@
     * right-drag down a column to paint a value into every lane it crosses
     * RESET restores one column, or all of them, to a fresh layer's values
     * ASSIGN SELECTED lays a track selection into the free lanes in one press
+    * ASSIGN + FX prints each source track's FX chain onto its items first,
+      then assigns; tracks with no enabled FX use the normal assign path.
+      Each item keeps its original take plus one replaceable FX take.
     * right click a recorded sound to restore the rack that made it, in its
       own scene
 
@@ -28,7 +31,15 @@
 
 
   v0.2.70:
-    * Recorder returns to normal Signal Session semantics; long-take repair now lives entirely in the shared finalizer.
+    * ASSIGN + FX keeps one original take and one FX take per item. Using the
+      button again replaces that FX take with the latest chain instead of
+      stacking another take.
+
+  v0.2.69:
+    * ASSIGN + FX prints each selected track's enabled FX chain onto its
+      items as new takes, then fills free lanes the same way as ASSIGN SELECTED.
+      Tracks with no enabled FX, or no audio items, skip the print and assign
+      with the original files.
 
   v0.2.68:
     * Recorder Signal Session now defaults ON when S-Layer opens.
@@ -1597,24 +1608,171 @@ local function selected_source_tracks()
   return out
 end
 
+--- True when the track has at least one enabled, online FX. Bypassed or
+--- offline plugins do not count: those tracks assign with their original files.
+local function track_has_enabled_fx(tr)
+  if not tr then return false end
+  local n=r.TrackFX_GetCount(tr)
+  if n<=0 then return false end
+  for fx=0,n-1 do
+    local enabled=r.TrackFX_GetEnabled(tr,fx)
+    local offline=r.TrackFX_GetOffline and r.TrackFX_GetOffline(tr,fx)
+    if enabled and not offline then return true end
+  end
+  return false
+end
+
+local function save_item_selection()
+  local out={}
+  for i=0,r.CountSelectedMediaItems(0)-1 do
+    out[#out+1]=r.GetSelectedMediaItem(0,i)
+  end
+  return out
+end
+
+local function restore_item_selection(saved)
+  if r.SelectAllMediaItems then r.SelectAllMediaItems(0,false)
+  else r.Main_OnCommand(40289,0) end
+  if not saved then return end
+  for _,item in ipairs(saved) do
+    if r.ValidatePtr2(0,item,"MediaItem*") then r.SetMediaItemSelected(item,true) end
+  end
+end
+
+local function save_track_selection()
+  local out={}
+  for i=0,r.CountSelectedTracks(0)-1 do
+    out[#out+1]=r.GetSelectedTrack(0,i)
+  end
+  return out
+end
+
+local function restore_track_selection(saved)
+  if not (saved and #saved>0) then return end
+  if r.SetOnlyTrackSelected then r.SetOnlyTrackSelected(saved[1]) end
+  for i=1,#saved do
+    if r.ValidatePtr2(0,saved[i],"MediaTrack*") then r.SetTrackSelected(saved[i],true) end
+  end
+end
+
+-- 40209 = Item: Apply track/take FX to items (as a new take, project channel format).
+local ACTION_APPLY_TRACK_TAKE_FX=40209
+local ACTION_UNSELECT_ITEMS=40289
+
+--[[
+  Prints the track FX chain onto every audio item on `tr` as one replaceable
+  take named ADFX FX, then leaves that take active so collect_pool / RS5K
+  pick up the file. A later ASSIGN + FX crops back to the dry take first so
+  the previous FX take is replaced instead of stacked.
+
+  Returns true when at least one item was printed. Tracks with no enabled FX
+  or no audio items return false so the caller can assign the originals.
+]]
+local function apply_track_fx_to_assets(tr)
+  if not track_has_enabled_fx(tr) then return false end
+  local n=r.CountTrackMediaItems(tr)
+  if n<=0 then return false end
+
+  local audio_items={}
+  for i=0,n-1 do
+    local item=r.GetTrackMediaItem(tr,i)
+    local take=item and r.GetActiveTake(item)
+    if take and not r.TakeIsMIDI(take) then audio_items[#audio_items+1]=item end
+  end
+  if #audio_items==0 then return false end
+
+  local function take_count(item)
+    if r.CountTakes then return r.CountTakes(item) end
+    if r.GetMediaItemNumTakes then return r.GetMediaItemNumTakes(item) end
+    return 1
+  end
+  local function take_at(item,idx)
+    if r.GetTake then return r.GetTake(item,idx) end
+    return r.GetMediaItemTake(item,idx)
+  end
+  local function is_fx_take(take)
+    if not take then return false end
+    local _,name=r.GetSetMediaItemTakeInfo_String(take,"P_NAME","",false)
+    return name=="ADFX FX"
+  end
+
+  -- Crop each item back to its original take before reprinting.
+  for _,item in ipairs(audio_items) do
+    local takes=take_count(item)
+    local dry
+    for ti=0,takes-1 do
+      local take=take_at(item,ti)
+      if take and not is_fx_take(take) then dry=take; break end
+    end
+    dry=dry or take_at(item,0)
+    if dry then
+      r.SetActiveTake(dry)
+      if takes>1 then
+        if r.SelectAllMediaItems then r.SelectAllMediaItems(0,false)
+        else r.Main_OnCommand(ACTION_UNSELECT_ITEMS,0) end
+        r.SetMediaItemSelected(item,true)
+        r.Main_OnCommand(40131,0) -- Take: Crop to active take in items
+      end
+    end
+  end
+
+  if r.SelectAllMediaItems then r.SelectAllMediaItems(0,false)
+  else r.Main_OnCommand(ACTION_UNSELECT_ITEMS,0) end
+  for _,item in ipairs(audio_items) do r.SetMediaItemSelected(item,true) end
+
+  if r.SetOnlyTrackSelected then r.SetOnlyTrackSelected(tr) end
+  r.Main_OnCommand(ACTION_APPLY_TRACK_TAKE_FX,0)
+
+  for _,item in ipairs(audio_items) do
+    if take_count(item)>=2 then
+      local take=r.GetActiveTake(item)
+      if take then r.GetSetMediaItemTakeInfo_String(take,"P_NAME","ADFX FX",true) end
+    end
+  end
+  return true
+end
+
 --- Lay the current track selection into the free lanes, top to bottom. This is
 --- the onboarding path: select the tracks once and skip the per-lane menus.
-local function assign_selected_tracks()
+--- `opts.apply_fx` prints each track's enabled FX chain onto its items first.
+local function assign_selected_tracks(opts)
+  opts=opts or {}
+  local apply_fx=opts.apply_fx==true
   local sel=selected_source_tracks()
   if #sel==0 then
-    status="Select source tracks in REAPER first, then press Assign Selected"
+    status=apply_fx
+      and "Select source tracks in REAPER first, then press Assign + FX"
+      or "Select source tracks in REAPER first, then press Assign Selected"
     return
   end
   local layers=scenes[selected_scene].layers
   local filled={}
+  local printed=0
+
+  local saved_items,saved_tracks
+  if apply_fx then
+    saved_items=save_item_selection()
+    saved_tracks=save_track_selection()
+    r.Undo_BeginBlock()
+  end
+
   for _,tr in ipairs(sel) do
     local target
     for li=1,NUM_LAYERS do
       if layers[li].source_guid=="" then target=li; break end
     end
     if not target then break end
+    if apply_fx and apply_track_fx_to_assets(tr) then printed=printed+1 end
     if set_layer_source(target,tr) then filled[#filled+1]=target end
   end
+
+  if apply_fx then
+    restore_item_selection(saved_items)
+    restore_track_selection(saved_tracks)
+    r.UpdateArrange()
+    r.Undo_EndBlock("ADFX S-Layer: assign selected with track FX",-1)
+  end
+
   if #filled==0 then
     status="Every lane already has a source track. Press Clear Lanes first"
     return
@@ -1633,9 +1791,17 @@ local function assign_selected_tracks()
     for i=1,used do names[i]="L"..filled[i] end
     where=table.concat(names,", ")
   end
+  local extra=""
+  if left>0 then extra=string.format(", %d did not fit",left) end
+  if apply_fx then
+    if printed>0 then
+      extra=extra..string.format(", printed FX on %d",printed)
+    else
+      extra=extra.." (no track FX to print — assigned originals)"
+    end
+  end
   status=string.format("Assigned %d track%s to %s%s",
-    used,used==1 and "" or "s",where,
-    left>0 and string.format(", %d did not fit",left) or "")
+    used,used==1 and "" or "s",where,extra)
 end
 
 local function stop_all_voices(set_status)
@@ -2643,6 +2809,13 @@ local function draw_main()
     r.ImGui_SetTooltip(ctx,"Fills the free lanes from the top with the tracks selected in REAPER,\nin the order they appear in the project.\n\nSelect the tracks, press this once, and skip the per-lane menus")
   end
   r.ImGui_SameLine(ctx)
+  if r.ImGui_Button(ctx,string.format("ASSIGN + FX (%d)##assignfx",nsel)) then
+    assign_selected_tracks({apply_fx=true})
+  end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"Same as ASSIGN SELECTED, but first prints each track's enabled FX\nchain onto its audio items.\n\nEach item keeps the original take plus one FX take. Using this again\nreplaces that FX take with the latest chain — it does not stack more takes.\n\nTracks with no enabled FX, or no audio items, skip the print and\nassign with the original files.")
+  end
+  r.ImGui_SameLine(ctx)
   if r.ImGui_Button(ctx,"CLEAR LANES##clear") then clear_lane_sources() end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
     r.ImGui_SetTooltip(ctx,"Stops all S-Layer voices, then unassigns the source track on all "..NUM_LAYERS.." lanes.\nEverything else about the lane is left alone")
@@ -2799,9 +2972,6 @@ do
         allow_auto_record = true,
         auto_record = false,
         signal_record = true,
-        -- S-Layer needs a real-time-faithful recorder timeline for waveform
-        -- playback and Restore Settings. Record waits for the first trigger;
-        -- after that trigger capture runs continuously until Stop.
         transport   = "isolated",
         menu_items  = {
           {
@@ -2853,6 +3023,9 @@ local function loop()
         r.ImGui_Text(ctx,"v"..VERSION.." | track-pool / visible per-layer FX workflow")
         r.ImGui_Text(ctx,"Each layer references a REAPER source track; its audio items form the sample pool.")
         r.ImGui_Text(ctx,"Select tracks in REAPER and press ASSIGN SELECTED to fill the free lanes in track order.")
+        r.ImGui_Text(ctx,"ASSIGN + FX prints each track's enabled FX chain onto its items first, then assigns.")
+        r.ImGui_Text(ctx,"Each item keeps the original take plus one FX take; using the button again replaces that FX take.")
+        r.ImGui_Text(ctx,"Tracks with no enabled FX skip the print and assign with the original files.")
         r.ImGui_Text(ctx,"Each ADFX S-Layer playback track owns FX 1-2; place your plugins after RS5K.")
         r.ImGui_Text(ctx,"Repair Engine preserves all user FX after the managed sampler.")
         r.ImGui_Text(ctx,"The JSFX bridge remains only for realtime trigger delivery.")
