@@ -16,7 +16,7 @@
     * hidden ADFX Trigger Bridge JSFX -> ReaSamplOmatic5000 playback engines
     * 8 scenes
     * one row per layer: every per-layer control is on it
-    * per-trigger global randomization of pitch, volume, pan, start and reverse
+    * per-trigger global randomization of pitch, volume, pan, start, reverse and FX
     * CHOKE decides whether a new trigger interrupts the previous shot
     * right-drag down a column to paint a value into every lane it crosses
     * RESET restores one column, or all of them, to a fresh layer's values
@@ -24,11 +24,29 @@
     * ASSIGN + FX prints each source track's FX chain onto its items first,
       then assigns; tracks with no enabled FX use the normal assign path.
       Each item keeps its original take plus one replaceable FX take.
+      Unchanged FX chains are skipped; already-assigned tracks still reprint
+      when the chain changed. Per-lane FX toggles wet / dry on that source.
     * right click a recorded sound to restore the rack that made it, in its
       own scene
 
 
 
+
+  v0.2.73:
+    * GLOBAL TRIGGER RANDOM FX checkbox independently turns each source's
+      printed FX take on or off per TRIGGER; ignored when no FX take exists
+    * the lane item-count column is fixed-width so 10+ variations no longer
+      shift RND and the sliders off the grid
+
+  v0.2.72:
+    * per-lane FX next to USE SELECTED toggles that source between the
+      original take and the printed ADFX FX take (prints on first use)
+    * ASSIGN + FX hashes the track FX chain and reprints only tracks that
+      changed, including tracks that are already assigned
+
+  v0.2.71:
+    * Loop / Rev / Mute / Solo are unlabeled boxes under a single header row
+      so each box sits in its column instead of between two names.
 
   v0.2.70:
     * ASSIGN + FX keeps one original take and one FX take per item. Using the
@@ -295,7 +313,7 @@
 ]]
 
 local r = reaper
-local VERSION = "0.2.70"
+local VERSION = "0.2.73"
 local TITLE = "ADFX S-Layer v" .. VERSION
 local EXT_SECTION = "ADFX_SLAYER_V020"
 local OLD_EXT_SECTION = "ADFX_SLAYER_V010"
@@ -466,9 +484,11 @@ local global_trigger_random = {
   Start  = {enabled=false, min=0.0,   max=0.25},
   -- Reverse is a switch rather than a range, so it randomizes by chance:
   -- 0 leaves every layer forward, 1 reverses all of them.
-  Reverse = {enabled=false, min=0.0, max=0.0, chance=0.5}
+  Reverse = {enabled=false, min=0.0, max=0.0, chance=0.5},
+  -- Per-lane wet/dry. Only sources that already have an ADFX FX take are touched.
+  FX = {enabled=false, min=0.0, max=0.0, chance=0.5}
 }
-local GLOBAL_RANDOM_ORDER = {"Pitch","Volume","Pan","Start","Reverse"}
+local GLOBAL_RANDOM_ORDER = {"Pitch","Volume","Pan","Start","Reverse","FX"}
 
 -- A recorder restore temporarily isolates the exact shot by turning off the global
 -- randomizers that produced it. Keep the user's complete pre-restore global setup
@@ -1200,6 +1220,8 @@ end
 local WAVEFORM_BINS = 72
 local WAVEFORM_HEIGHT = 22
 local WAVEFORM_WIDTH = 230
+-- Wide enough for "999 items" so a 10th variation cannot shove RND sideways.
+local ITEMS_COL_W = 80
 local waveform_cache = {}
 local waveform_queue = {}
 local waveform_queued = {}
@@ -1659,52 +1681,95 @@ end
 local ACTION_APPLY_TRACK_TAKE_FX=40209
 local ACTION_UNSELECT_ITEMS=40289
 
---[[
-  Prints the track FX chain onto every audio item on `tr` as one replaceable
-  take named ADFX FX, then leaves that take active so collect_pool / RS5K
-  pick up the file. A later ASSIGN + FX crops back to the dry take first so
-  the previous FX take is replaced instead of stacked.
+-- One table so take / hash / toggle helpers do not add main-chunk locals.
+-- Lua's 200-local limit is already close in this file.
+local slayer_fx={}
+slayer_fx.HASH_EXT="P_EXT:ADFX_SLAYER_FX_HASH"
 
-  Returns true when at least one item was printed. Tracks with no enabled FX
-  or no audio items return false so the caller can assign the originals.
-]]
-local function apply_track_fx_to_assets(tr)
-  if not track_has_enabled_fx(tr) then return false end
-  local n=r.CountTrackMediaItems(tr)
-  if n<=0 then return false end
-
-  local audio_items={}
+slayer_fx.take_count=function(item)
+  if r.CountTakes then return r.CountTakes(item) end
+  if r.GetMediaItemNumTakes then return r.GetMediaItemNumTakes(item) end
+  return 1
+end
+slayer_fx.take_at=function(item,idx)
+  if r.GetTake then return r.GetTake(item,idx) end
+  return r.GetMediaItemTake(item,idx)
+end
+slayer_fx.is_fx_take=function(take)
+  if not take then return false end
+  local _,name=r.GetSetMediaItemTakeInfo_String(take,"P_NAME","",false)
+  return name=="ADFX FX"
+end
+slayer_fx.find_fx=function(item)
+  local n=slayer_fx.take_count(item)
   for i=0,n-1 do
+    local take=slayer_fx.take_at(item,i)
+    if slayer_fx.is_fx_take(take) then return take end
+  end
+end
+slayer_fx.find_dry=function(item)
+  local n=slayer_fx.take_count(item)
+  for i=0,n-1 do
+    local take=slayer_fx.take_at(item,i)
+    if take and not slayer_fx.is_fx_take(take) then return take end
+  end
+end
+slayer_fx.audio_items=function(tr)
+  local out={}
+  if not tr then return out end
+  for i=0,r.CountTrackMediaItems(tr)-1 do
     local item=r.GetTrackMediaItem(tr,i)
     local take=item and r.GetActiveTake(item)
-    if take and not r.TakeIsMIDI(take) then audio_items[#audio_items+1]=item end
+    if take and not r.TakeIsMIDI(take) then out[#out+1]=item end
   end
-  if #audio_items==0 then return false end
-
-  local function take_count(item)
-    if r.CountTakes then return r.CountTakes(item) end
-    if r.GetMediaItemNumTakes then return r.GetMediaItemNumTakes(item) end
-    return 1
-  end
-  local function take_at(item,idx)
-    if r.GetTake then return r.GetTake(item,idx) end
-    return r.GetMediaItemTake(item,idx)
-  end
-  local function is_fx_take(take)
-    if not take then return false end
-    local _,name=r.GetSetMediaItemTakeInfo_String(take,"P_NAME","",false)
-    return name=="ADFX FX"
-  end
-
-  -- Crop each item back to its original take before reprinting.
-  for _,item in ipairs(audio_items) do
-    local takes=take_count(item)
-    local dry
-    for ti=0,takes-1 do
-      local take=take_at(item,ti)
-      if take and not is_fx_take(take) then dry=take; break end
+  return out
+end
+slayer_fx.hash_string=function(s)
+  local h=5381
+  for i=1,#s do h=(h*33+s:byte(i))%2147483647 end
+  return tostring(h)
+end
+-- skipped = chain matches and every item already has an ADFX FX take
+-- missing = chain matches but new items still need a first print
+-- all     = first print, or the chain changed
+slayer_fx.plan_print=function(hash,stored,missing_n)
+  if stored==hash and hash~="" and missing_n==0 then return "skipped" end
+  if stored==hash and hash~="" and missing_n>0 then return "missing" end
+  return "all"
+end
+slayer_fx.chain_hash=function(tr)
+  local n=r.TrackFX_GetCount(tr)
+  local parts={tostring(n)}
+  for fx=0,n-1 do
+    local _,name=r.TrackFX_GetFXName(tr,fx,"")
+    local offline=r.TrackFX_GetOffline and r.TrackFX_GetOffline(tr,fx)
+    parts[#parts+1]=name or ""
+    parts[#parts+1]=r.TrackFX_GetEnabled(tr,fx) and "1" or "0"
+    parts[#parts+1]=offline and "1" or "0"
+    if r.TrackFX_GetFXGUID then parts[#parts+1]=r.TrackFX_GetFXGUID(tr,fx) or "" end
+    local nparams=r.TrackFX_GetNumParams(tr,fx) or 0
+    parts[#parts+1]=tostring(nparams)
+    for p=0,nparams-1 do
+      parts[#parts+1]=string.format("%.5f",r.TrackFX_GetParam(tr,fx,p) or 0)
     end
-    dry=dry or take_at(item,0)
+  end
+  return slayer_fx.hash_string(table.concat(parts,"\n"))
+end
+slayer_fx.get_hash=function(tr)
+  if not r.GetSetMediaTrackInfo_String then return "" end
+  local a,b=r.GetSetMediaTrackInfo_String(tr,slayer_fx.HASH_EXT,"",false)
+  if type(a)=="string" and a~="" then return a end
+  return (type(b)=="string" and b) or ""
+end
+slayer_fx.set_hash=function(tr,hash)
+  if r.GetSetMediaTrackInfo_String then
+    r.GetSetMediaTrackInfo_String(tr,slayer_fx.HASH_EXT,hash or "",true)
+  end
+end
+slayer_fx.crop_to_dry=function(items)
+  for _,item in ipairs(items) do
+    local takes=slayer_fx.take_count(item)
+    local dry=slayer_fx.find_dry(item) or slayer_fx.take_at(item,0)
     if dry then
       r.SetActiveTake(dry)
       if takes>1 then
@@ -1715,26 +1780,191 @@ local function apply_track_fx_to_assets(tr)
       end
     end
   end
-
+end
+slayer_fx.print_items=function(tr,items)
   if r.SelectAllMediaItems then r.SelectAllMediaItems(0,false)
   else r.Main_OnCommand(ACTION_UNSELECT_ITEMS,0) end
-  for _,item in ipairs(audio_items) do r.SetMediaItemSelected(item,true) end
-
+  for _,item in ipairs(items) do r.SetMediaItemSelected(item,true) end
   if r.SetOnlyTrackSelected then r.SetOnlyTrackSelected(tr) end
   r.Main_OnCommand(ACTION_APPLY_TRACK_TAKE_FX,0)
-
-  for _,item in ipairs(audio_items) do
-    if take_count(item)>=2 then
+  for _,item in ipairs(items) do
+    if slayer_fx.take_count(item)>=2 then
       local take=r.GetActiveTake(item)
       if take then r.GetSetMediaItemTakeInfo_String(take,"P_NAME","ADFX FX",true) end
     end
   end
-  return true
+end
+slayer_fx.refresh_lanes=function(tr)
+  if not tr then return end
+  local guid=r.GetTrackGUID(tr)
+  for li=1,NUM_LAYERS do
+    local L=scenes[selected_scene].layers[li]
+    if L.source_guid==guid then
+      invalidate_pools(li)
+      local pool=refresh_layer_pool(li,true)
+      if #pool>0 then load_pool_item(li,pool[clamp(L.sample_index,1,#pool)]) end
+      mark_layer_dirty(li)
+    end
+  end
+end
+slayer_fx.is_wet=function(tr)
+  if not tr then return false end
+  local items=slayer_fx.audio_items(tr)
+  if #items==0 then return false end
+  local fx_n,wet_n=0,0
+  for _,item in ipairs(items) do
+    local fx=slayer_fx.find_fx(item)
+    if fx then
+      fx_n=fx_n+1
+      if r.GetActiveTake(item)==fx then wet_n=wet_n+1 end
+    end
+  end
+  return fx_n>0 and wet_n==fx_n
+end
+slayer_fx.lane_has_fx=function(L)
+  local tr=L and source_track_for_layer(L)
+  if not tr then return false end
+  for _,item in ipairs(slayer_fx.audio_items(tr)) do
+    if slayer_fx.find_fx(item) then return true end
+  end
+  return false
+end
+slayer_fx.any_in_use=function()
+  local scene=scenes[selected_scene]
+  if not scene then return false end
+  for li=1,NUM_LAYERS do
+    if slayer_fx.lane_has_fx(scene.layers[li]) then return true end
+  end
+  return false
+end
+slayer_fx.set_wet=function(tr,go_wet)
+  if not tr then return false end
+  local changed=false
+  for _,item in ipairs(slayer_fx.audio_items(tr)) do
+    local take=go_wet and slayer_fx.find_fx(item) or slayer_fx.find_dry(item)
+    if take and r.GetActiveTake(item)~=take then
+      r.SetActiveTake(take)
+      changed=true
+    end
+  end
+  return changed
+end
+slayer_fx.apply_random=function(scene,g)
+  if not (g and g.enabled) then return end
+  local chance=g.chance
+  if chance==nil then chance=0.5 end
+  for li=1,NUM_LAYERS do
+    local L=scene.layers[li]
+    if slayer_fx.lane_has_fx(L) then
+      local go_wet=math.random()<chance
+      slayer_fx.set_wet(source_track_for_layer(L),go_wet)
+      L.fx_wet=go_wet
+      invalidate_pools(li)
+    end
+  end
+end
+slayer_fx.restore_wet=function(scene)
+  if not scene then return end
+  for li=1,NUM_LAYERS do
+    local L=scene.layers[li]
+    if L.fx_wet~=nil and slayer_fx.lane_has_fx(L) then
+      slayer_fx.set_wet(source_track_for_layer(L),L.fx_wet and true or false)
+      invalidate_pools(li)
+    end
+  end
+end
+
+--[[
+  Prints the track FX chain onto audio items on `tr` as one replaceable take
+  named ADFX FX. A later print crops back to the dry take first so the previous
+  FX take is replaced instead of stacked.
+
+  Returns "printed" when at least one item was printed, "skipped" when the
+  stored FX hash still matches and every audio item already has an FX take,
+  or nil when there is nothing to print.
+]]
+local function apply_track_fx_to_assets(tr)
+  if not track_has_enabled_fx(tr) then return nil end
+  local audio_items=slayer_fx.audio_items(tr)
+  if #audio_items==0 then return nil end
+
+  local missing=0
+  local missing_items={}
+  for _,item in ipairs(audio_items) do
+    if not slayer_fx.find_fx(item) then
+      missing=missing+1
+      missing_items[#missing_items+1]=item
+    end
+  end
+
+  local hash=slayer_fx.chain_hash(tr)
+  local plan=slayer_fx.plan_print(hash,slayer_fx.get_hash(tr),missing)
+  if plan=="skipped" then return "skipped" end
+
+  local to_print=audio_items
+  if plan=="all" then slayer_fx.crop_to_dry(audio_items)
+  else to_print=missing_items end
+  slayer_fx.print_items(tr,to_print)
+  slayer_fx.set_hash(tr,hash)
+  return "printed"
+end
+
+slayer_fx.toggle_lane=function(li)
+  local L=scenes[selected_scene].layers[li]
+  local tr=source_track_for_layer(L)
+  if not tr then status="Assign a source track first"; return end
+  local items=slayer_fx.audio_items(tr)
+  if #items==0 then status="L"..li.." source has no audio items"; return end
+
+  local fx_n,wet_n=0,0
+  for _,item in ipairs(items) do
+    local fx=slayer_fx.find_fx(item)
+    if fx then
+      fx_n=fx_n+1
+      if r.GetActiveTake(item)==fx then wet_n=wet_n+1 end
+    end
+  end
+
+  if fx_n>0 then
+    local go_wet=wet_n<fx_n
+    r.Undo_BeginBlock()
+    for _,item in ipairs(items) do
+      local take=go_wet and slayer_fx.find_fx(item) or slayer_fx.find_dry(item)
+      if take then r.SetActiveTake(take) end
+    end
+    r.UpdateArrange()
+    r.Undo_EndBlock(go_wet and "ADFX S-Layer: listen with FX" or "ADFX S-Layer: listen dry",-1)
+    L.fx_wet=go_wet
+    slayer_fx.refresh_lanes(tr)
+    status=go_wet and ("L"..li.." FX on") or ("L"..li.." FX off")
+    return
+  end
+
+  if not track_has_enabled_fx(tr) then
+    status="L"..li.." source has no enabled FX to print"
+    return
+  end
+  local saved_items=save_item_selection()
+  local saved_tracks=save_track_selection()
+  r.Undo_BeginBlock()
+  local result=apply_track_fx_to_assets(tr)
+  restore_item_selection(saved_items)
+  restore_track_selection(saved_tracks)
+  r.UpdateArrange()
+  r.Undo_EndBlock("ADFX S-Layer: print track FX",-1)
+  if result=="printed" then
+    L.fx_wet=true
+    slayer_fx.refresh_lanes(tr)
+    status="L"..li.." printed FX"
+  else
+    status="L"..li.." could not print FX"
+  end
 end
 
 --- Lay the current track selection into the free lanes, top to bottom. This is
 --- the onboarding path: select the tracks once and skip the per-lane menus.
---- `opts.apply_fx` prints each track's enabled FX chain onto its items first.
+--- `opts.apply_fx` prints each track's enabled FX chain onto its items first,
+--- skipping tracks whose stored chain hash still matches.
 local function assign_selected_tracks(opts)
   opts=opts or {}
   local apply_fx=opts.apply_fx==true
@@ -1747,23 +1977,45 @@ local function assign_selected_tracks(opts)
   end
   local layers=scenes[selected_scene].layers
   local filled={}
-  local printed=0
+  local printed,skipped,already=0,0,0
+  local assigned={}
+  for li=1,NUM_LAYERS do
+    local g=layers[li].source_guid
+    if g~="" then assigned[g]=true end
+  end
+  for _,tr in ipairs(sel) do
+    if assigned[r.GetTrackGUID(tr)] then already=already+1 end
+  end
 
   local saved_items,saved_tracks
   if apply_fx then
     saved_items=save_item_selection()
     saved_tracks=save_track_selection()
     r.Undo_BeginBlock()
+    for _,tr in ipairs(sel) do
+      local result=apply_track_fx_to_assets(tr)
+      if result=="printed" then
+        printed=printed+1
+        slayer_fx.refresh_lanes(tr)
+      elseif result=="skipped" then
+        skipped=skipped+1
+      end
+    end
   end
 
   for _,tr in ipairs(sel) do
-    local target
-    for li=1,NUM_LAYERS do
-      if layers[li].source_guid=="" then target=li; break end
+    local guid=r.GetTrackGUID(tr)
+    if not assigned[guid] then
+      local target
+      for li=1,NUM_LAYERS do
+        if layers[li].source_guid=="" then target=li; break end
+      end
+      if not target then break end
+      if set_layer_source(target,tr) then
+        filled[#filled+1]=target
+        assigned[guid]=true
+      end
     end
-    if not target then break end
-    if apply_fx and apply_track_fx_to_assets(tr) then printed=printed+1 end
-    if set_layer_source(target,tr) then filled[#filled+1]=target end
   end
 
   if apply_fx then
@@ -1773,14 +2025,34 @@ local function assign_selected_tracks(opts)
     r.Undo_EndBlock("ADFX S-Layer: assign selected with track FX",-1)
   end
 
+  local function fx_extra()
+    if printed>0 and skipped>0 then
+      return string.format(", printed FX on %d, skipped %d (unchanged)",printed,skipped)
+    end
+    if printed>0 then return string.format(", printed FX on %d",printed) end
+    if skipped>0 then return string.format(", skipped %d (unchanged)",skipped) end
+    return " (no track FX to print — assigned originals)"
+  end
+
   if #filled==0 then
+    if apply_fx and (printed>0 or skipped>0) then
+      save_state(); apply_runtime(true)
+      if printed>0 then
+        status="Reprinted FX on "..printed..(skipped>0 and string.format(", skipped %d (unchanged)",skipped) or "")
+          .." (lanes already assigned)"
+      else
+        status=string.format("FX unchanged on %d track%s — nothing to reprint",
+          skipped,skipped==1 and "" or "s")
+      end
+      return
+    end
     status="Every lane already has a source track. Press Clear Lanes first"
     return
   end
   save_state(); apply_runtime(true)
 
   local used=#filled
-  local left=#sel-used
+  local left=#sel-already-used
   -- Free lanes are not always a run: filling the gaps in L1, _, L3, _ lands on
   -- 2 and 4, and calling that "L2-L4" would name a lane that was left alone.
   local where
@@ -1792,14 +2064,9 @@ local function assign_selected_tracks(opts)
     where=table.concat(names,", ")
   end
   local extra=""
-  if left>0 then extra=string.format(", %d did not fit",left) end
-  if apply_fx then
-    if printed>0 then
-      extra=extra..string.format(", printed FX on %d",printed)
-    else
-      extra=extra.." (no track FX to print — assigned originals)"
-    end
-  end
+  if already>0 then extra=extra..string.format(", %d already assigned",already) end
+  if left>0 then extra=extra..string.format(", %d did not fit",left) end
+  if apply_fx then extra=extra..fx_extra() end
   status=string.format("Assigned %d track%s to %s%s",
     used,used==1 and "" or "s",where,extra)
 end
@@ -1908,6 +2175,8 @@ local function record_shot(fire, bypass_random)
     -- The whole layer, so a restore does not have to know which fields matter.
     local L=copy_table(scene.layers[li])
     L.fired=fire[li] and true or false
+    local tr=source_track_for_layer(scene.layers[li])
+    if tr then L.fx_wet=slayer_fx.is_wet(tr) end
     layers[li]=L
   end
   local randomized={}
@@ -1975,6 +2244,7 @@ local function restore_shot(shot)
     target.layers[li]=L
   end
   scenes[si]=target
+  slayer_fx.restore_wet(target)
   narrow_random[si]={active=false,multiplier=2.0,layers={}}
   -- LAST TRIGGER/T is a diagnostic replay of the state the user is looking at.
   -- A recorder restore therefore becomes its source immediately, instead of
@@ -2212,6 +2482,11 @@ local function apply_global_trigger_random(scene)
       if grev.enabled then L.reverse=math.random()<grev.chance end
     end
   end
+  -- FX wet/dry is a separate take switch, not a lane slider. Narrow leaves it
+  -- alone the same way it leaves Reverse / Loop / Mute / Solo alone.
+  if not (nr and nr.active) then
+    slayer_fx.apply_random(scene,global_trigger_random.FX)
+  end
 end
 
 local function trigger(velocity, replay_shot)
@@ -2246,6 +2521,7 @@ local function trigger(velocity, replay_shot)
       scene.layers[li].mute=live_mute[li]
       scene.layers[li].solo=live_solo[li]
     end
+    slayer_fx.restore_wet(scene)
     invalidate_pools()
   else
     -- A fresh trigger supersedes any recorder-restored diagnostic snapshot.
@@ -2377,7 +2653,7 @@ local function update_global_toggle_drag()
   end
   local mx,my=r.ImGui_GetMousePos(ctx)
   local changed=false
-  for _,name in ipairs({"Pitch","Volume","Pan","Start","Reverse"}) do
+  for _,name in ipairs(GLOBAL_RANDOM_ORDER) do
     local rc=global_toggle_rects[name]
     if rc and not global_toggle_drag.visited[name] and
        segment_hits_rect(global_toggle_drag.px,global_toggle_drag.py,mx,my,rc) then
@@ -2459,6 +2735,31 @@ local function draw_global_reverse(width)
   r.ImGui_PopID(ctx)
 end
 
+local function draw_global_fx(width)
+  local g=global_trigger_random.FX
+  r.ImGui_PushID(ctx,"global_random_FX")
+  r.ImGui_SameLine(ctx,GLOBAL_GRID.right_name)
+  local any=slayer_fx.any_in_use()
+  local disabled=false
+  if not any and r.ImGui_BeginDisabled then
+    r.ImGui_BeginDisabled(ctx,true)
+    disabled=true
+  end
+  global_toggle_checkbox("FX",g)
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,any
+      and "When enabled, each TRIGGER independently turns each source's printed FX take on or off.\nOdds is the chance that lane listens to the FX take.\nSources with no FX take are left alone."
+      or "Print FX on a source first (per-lane FX or ASSIGN + FX).\nThis randomizer only applies to tracks that already have an FX take.")
+  end
+  r.ImGui_SameLine(ctx,GLOBAL_GRID.right_mid_label); r.ImGui_Text(ctx,"Odds")
+  r.ImGui_SameLine(ctx,GLOBAL_GRID.right_mid_value); r.ImGui_SetNextItemWidth(ctx,width)
+  local changed,v=r.ImGui_SliderDouble(ctx,"##chance",g.chance*100,0,100,"%.0f%%")
+  global_drag_value_tip("FX Odds",v,"%.0f%%")
+  if changed then g.chance=clamp(v/100,0,1); mark_state_dirty() end
+  if disabled then r.ImGui_EndDisabled(ctx) end
+  r.ImGui_PopID(ctx)
+end
+
 release_restore_iso_settings=function()
   if not restore_global_random_snapshot then return end
   -- RESTORE is the explicit exit from recorder-restore isolation. If Narrow is
@@ -2518,7 +2819,7 @@ local function draw_narrow_controls()
     r.ImGui_SetTooltip(ctx,string.format(
       "Capture every lane's CURRENT Pitch / Volume / Pan / Start as a sweet spot.\n"..
       "Range x %.2f gives approximately:\n  Pitch +/-%.2f st   Volume +/-%.2f dB\n  Pan +/-%.3f   Start +/-%.4f\n"..
-      "Reverse, Loop, Mute and Solo stay unchanged.\n"..
+      "Reverse, FX, Loop, Mute and Solo stay unchanged.\n"..
       "The slider drag range is 0-4x; Ctrl+click/type a larger value if needed.\n\n"..
       "Click again to turn Narrow off. During recorder-restore isolation,\nthis returns to the exact restored state (lane RND + Global Random OFF).\nUse RESTORE to exit isolation and reinstate the previous random settings.",
       m,NARROW_RANDOM_SPREAD.Pitch*m,NARROW_RANDOM_SPREAD.Volume*m,
@@ -2559,7 +2860,7 @@ local function draw_narrow_controls()
     if restore_pushed>0 then r.ImGui_PopStyleColor(ctx,restore_pushed) end
     if restore_pressed then release_restore_iso_settings() end
     if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-      r.ImGui_SetTooltip(ctx,"Restored shot is temporarily isolated.\nClick RESTORE to exit isolation and reinstate the previous Pitch / Volume / Pan / Start / Reverse Global Random setup and lane RND states.\nNARROW CURRENT can temporarily resume lane RND + narrow variation; turning Narrow OFF returns to this isolated state.")
+      r.ImGui_SetTooltip(ctx,"Restored shot is temporarily isolated.\nClick RESTORE to exit isolation and reinstate the previous Pitch / Volume / Pan / Start / Reverse / FX Global Random setup and lane RND states.\nNARROW CURRENT can temporarily resume lane RND + narrow variation; turning Narrow OFF returns to this isolated state.")
     end
   end
 end
@@ -2579,7 +2880,7 @@ local function draw_global_trigger_random()
   -- Fixed three-row grid:
   --   Pitch  Min [ ] Max [ ]     Start   Min [ ] Max [ ]     NARROW CURRENT  Range x [ ]
   --   Volume Min [ ] Max [ ]     Reverse Odds [ ]
-  --   Pan    Min [ ] Max [ ]
+  --   Pan    Min [ ] Max [ ]     FX      Odds [ ]
   draw_global_range("Pitch",-24,24,"%.1f st",92,"left")
   draw_global_range("Start",0,1,"%.3f",92,"right")
   draw_narrow_controls()
@@ -2588,6 +2889,7 @@ local function draw_global_trigger_random()
   draw_global_reverse(92)
 
   draw_global_range("Pan",-1,1,"%.2f",92,"left")
+  draw_global_fx(92)
 
   -- Subtle vertical separators between the three logical sections.
   -- The first sits between the left range matrix and Start/Reverse; the
@@ -2813,7 +3115,7 @@ local function draw_main()
     assign_selected_tracks({apply_fx=true})
   end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"Same as ASSIGN SELECTED, but first prints each track's enabled FX\nchain onto its audio items.\n\nEach item keeps the original take plus one FX take. Using this again\nreplaces that FX take with the latest chain — it does not stack more takes.\n\nTracks with no enabled FX, or no audio items, skip the print and\nassign with the original files.")
+    r.ImGui_SetTooltip(ctx,"Same as ASSIGN SELECTED, but first prints each track's enabled FX\nchain onto its audio items.\n\nEach item keeps the original take plus one FX take. Using this again\nreplaces that FX take only on tracks whose FX settings changed, and\nstill reprints those tracks if they are already assigned.\n\nTracks with no enabled FX, or no audio items, skip the print and\nassign with the original files.")
   end
   r.ImGui_SameLine(ctx)
   if r.ImGui_Button(ctx,"CLEAR LANES##clear") then clear_lane_sources() end
@@ -2866,6 +3168,23 @@ local function draw_main()
     status="Reset every layer control to its default"
   end
   r.ImGui_Separator(ctx)
+  -- One header row for the toggle cluster. ImGui checkboxes are box-then-label,
+  -- so "Loop" used to sit between two boxes. Names live here; lanes draw boxes
+  -- only. Positions come from the previous frame's lane row.
+  if PAINT_COLUMNS.Loop.hx and r.ImGui_SetCursorPosX then
+    local header=r.ImGui_TextDisabled or r.ImGui_Text
+    r.ImGui_SetCursorPosX(ctx,PAINT_COLUMNS.Loop.hx)
+    header(ctx,"Loop")
+    if PAINT_COLUMNS.Rev.hx then
+      r.ImGui_SameLine(ctx); r.ImGui_SetCursorPosX(ctx,PAINT_COLUMNS.Rev.hx); header(ctx,"Rev")
+    end
+    if PAINT_COLUMNS.M.hx then
+      r.ImGui_SameLine(ctx); r.ImGui_SetCursorPosX(ctx,PAINT_COLUMNS.M.hx); header(ctx,"Mute")
+    end
+    if PAINT_COLUMNS.S.hx then
+      r.ImGui_SameLine(ctx); r.ImGui_SetCursorPosX(ctx,PAINT_COLUMNS.S.hx); header(ctx,"Solo")
+    end
+  end
   for i=1,NUM_LAYERS do
     local L=scene.layers[i]; r.ImGui_PushID(ctx,"layer"..i)
     -- Fixed lane-label column: keep every assignment/control column identical
@@ -2874,13 +3193,41 @@ local function draw_main()
     r.ImGui_SameLine(ctx,30)
     source_combo(i)
     r.ImGui_SameLine(ctx); if r.ImGui_SmallButton(ctx,"USE SELECTED") then local tr=r.GetSelectedTrack(0,0); if tr then assign_source_track(i,tr) else status="Select a REAPER source track first" end end
+    r.ImGui_SameLine(ctx)
+    do
+      local src=source_track_for_layer(L)
+      local wet=src and slayer_fx.is_wet(src)
+      local tinted=false
+      if wet and r.ImGui_PushStyleColor then
+        local col=r.ImGui_Col_Button
+        if type(col)=="function" then col=col() end
+        if type(col)=="number" then
+          tinted=pcall(r.ImGui_PushStyleColor,ctx,col,0x2E8B57FF)
+        end
+      end
+      if r.ImGui_SmallButton(ctx,"FX") then slayer_fx.toggle_lane(i) end
+      if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_SetTooltip(ctx,"Toggle this lane's source between the printed FX take and the original.\nFirst click prints the track FX if there is no FX take yet.\nGreen = listening to the FX take.\nASSIGN + FX reprints only tracks whose FX settings changed.")
+      end
+      if tinted then r.ImGui_PopStyleColor(ctx,1) end
+    end
     r.ImGui_SameLine(ctx); draw_lane_waveform(i,L)
-    r.ImGui_SameLine(ctx); r.ImGui_Text(ctx,string.format("%d items",L.pool_count or 0))
-    r.ImGui_SameLine(ctx); local ch,v=r.ImGui_Checkbox(ctx,"RND",L.random_sample)
+    r.ImGui_SameLine(ctx)
+    do
+      local items_x=r.ImGui_GetCursorPosX and r.ImGui_GetCursorPosX(ctx)
+      r.ImGui_Text(ctx,string.format("%3d items",L.pool_count or 0))
+      if items_x then r.ImGui_SameLine(ctx,items_x+ITEMS_COL_W)
+      else r.ImGui_SameLine(ctx) end
+    end
+    local ch,v=r.ImGui_Checkbox(ctx,"RND",L.random_sample)
     paint_note_rect("RND",i); paint_begin("RND",i)
     if ch then L.random_sample=v; mark_state_dirty() end
-    if not L.random_sample and (L.pool_count or 0)>0 then
-      r.ImGui_SameLine(ctx); r.ImGui_SetNextItemWidth(ctx,95); ch,v=r.ImGui_SliderInt(ctx,"Item",L.sample_index,1,L.pool_count); if ch then L.sample_index=v; local pool=refresh_layer_pool(i); load_pool_item(i,pool[v]); mark_state_dirty() end
+    -- Always reserve the Item slider so Loop/Rev/Mute/Solo stay on a grid.
+    r.ImGui_SameLine(ctx); r.ImGui_SetNextItemWidth(ctx,95)
+    local item_max=math.max(L.pool_count or 0,1)
+    ch,v=r.ImGui_SliderInt(ctx,"Item",L.sample_index,1,item_max)
+    if ch and not L.random_sample and (L.pool_count or 0)>0 then
+      L.sample_index=v; local pool=refresh_layer_pool(i); load_pool_item(i,pool[v]); mark_state_dirty()
     end
     -- Each painted column notes its rect and offers itself to a right-drag
     -- immediately after being drawn, while the item is still the current one.
@@ -2896,24 +3243,30 @@ local function draw_main()
     r.ImGui_SameLine(ctx); r.ImGui_SetNextItemWidth(ctx,80); ch,v=r.ImGui_SliderDouble(ctx,"Pan",L.pan,-1,1,"%.2f")
     paint_note_rect("Pan",i); paint_begin("Pan",i)
     if ch then L.pan=v; mark_layer_dirty(i); mark_state_dirty() end
-    -- Loop and Reverse came off the envelope page; they are RS5K playback
-    -- settings per layer, so the layer row is where they belong.
-    r.ImGui_SameLine(ctx); ch,v=r.ImGui_Checkbox(ctx,"Loop",L.loop)
-    paint_note_rect("Loop",i); paint_begin("Loop",i)
+    r.ImGui_SameLine(ctx)
+    if r.ImGui_TextDisabled then r.ImGui_TextDisabled(ctx,"|") else r.ImGui_Text(ctx,"|") end
+    -- Unlabeled boxes under the header. Fixed column width keeps every lane
+    -- on the same grid even though "Mute" is wider than a checkbox.
+    local toggle_w=46
+    local function lane_toggle(col_id,value,last)
+      r.ImGui_SameLine(ctx)
+      local start_x=r.ImGui_GetCursorPosX and r.ImGui_GetCursorPosX(ctx)
+      if start_x then PAINT_COLUMNS[col_id].hx=start_x end
+      local changed,on=r.ImGui_Checkbox(ctx,"##"..col_id,value)
+      paint_note_rect(col_id,i); paint_begin(col_id,i)
+      if start_x and not last then r.ImGui_SameLine(ctx,start_x+toggle_w) end
+      return changed,on
+    end
+    ch,v=lane_toggle("Loop",L.loop)
     if ch then L.loop=v; mark_layer_dirty(i); mark_state_dirty() end
-    -- Reverse changes which file the sampler holds, so unlike the other
-    -- controls it has to re-load the pool item rather than just re-write params.
-    r.ImGui_SameLine(ctx); ch,v=r.ImGui_Checkbox(ctx,"Rev",L.reverse)
-    paint_note_rect("Rev",i); paint_begin("Rev",i)
+    ch,v=lane_toggle("Rev",L.reverse)
     if ch then L.reverse=v; reverse_note=""; reload_layer_sample(i); mark_layer_dirty(i); mark_state_dirty() end
     if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
       r.ImGui_SetTooltip(ctx,"Reverse playback\nThe item's audio is rendered backwards into the project's\n"..REVERSE_DIR_NAME.." folder the first time, then reused")
     end
-    r.ImGui_SameLine(ctx); ch,v=r.ImGui_Checkbox(ctx,"M",L.mute)
-    paint_note_rect("M",i); paint_begin("M",i)
+    ch,v=lane_toggle("M",L.mute)
     if ch then L.mute=v; mark_all_dirty(); mark_state_dirty() end
-    r.ImGui_SameLine(ctx); ch,v=r.ImGui_Checkbox(ctx,"S",L.solo)
-    paint_note_rect("S",i); paint_begin("S",i)
+    ch,v=lane_toggle("S",L.solo,true)
     if ch then L.solo=v; mark_all_dirty(); mark_state_dirty() end
     r.ImGui_PopID(ctx)
   end
@@ -3024,12 +3377,17 @@ local function loop()
         r.ImGui_Text(ctx,"Each layer references a REAPER source track; its audio items form the sample pool.")
         r.ImGui_Text(ctx,"Select tracks in REAPER and press ASSIGN SELECTED to fill the free lanes in track order.")
         r.ImGui_Text(ctx,"ASSIGN + FX prints each track's enabled FX chain onto its items first, then assigns.")
-        r.ImGui_Text(ctx,"Each item keeps the original take plus one FX take; using the button again replaces that FX take.")
+        r.ImGui_Text(ctx,"ASSIGN + FX reprints only tracks whose FX settings changed, including already-assigned tracks.")
+        r.ImGui_Text(ctx,"Each item keeps the original take plus one FX take; a later print replaces that FX take.")
+        r.ImGui_Text(ctx,"The per-lane FX button toggles that source between the original take and the printed FX take.")
+        r.ImGui_Text(ctx,"GLOBAL TRIGGER RANDOM FX independently turns each printed FX take on or off per TRIGGER.")
+        r.ImGui_Text(ctx,"That FX randomizer is disabled until at least one assigned source has an FX take.")
         r.ImGui_Text(ctx,"Tracks with no enabled FX skip the print and assign with the original files.")
         r.ImGui_Text(ctx,"Each ADFX S-Layer playback track owns FX 1-2; place your plugins after RS5K.")
         r.ImGui_Text(ctx,"Repair Engine preserves all user FX after the managed sampler.")
         r.ImGui_Text(ctx,"The JSFX bridge remains only for realtime trigger delivery.")
         r.ImGui_Text(ctx,"Every layer control is on its row.")
+        r.ImGui_Text(ctx,"Loop / Rev / Mute / Solo are the four boxes under those headers at the right of each lane.")
         r.ImGui_Text(ctx,"Right-drag a control down its column to paint every lane the line crosses.")
         r.ImGui_Text(ctx,"On a checkbox the whole drag writes one state, the opposite of the box it started on.")
         r.ImGui_Text(ctx,"RESET puts one column, or every column, back to a fresh layer's values.")
