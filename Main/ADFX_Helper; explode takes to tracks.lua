@@ -1,5 +1,5 @@
--- @description Takes: Explode takes of items across tracks
--- @author Claude
+-- @description ADFX_Helper; Explode takes of items across tracks
+-- @author ADFXSound
 -- @version 1.2
 -- @about
 --   Explodes multi-take items so each take gets its own dedicated track.
