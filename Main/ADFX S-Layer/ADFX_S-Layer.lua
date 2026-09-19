@@ -4,7 +4,7 @@
 
 --[[
   ADFX S-Layer v0.2.66
-  REAPER / ReaImGui prototype inspired by the workflow of Twisted Tools S-LAYER.
+  REAPER / ReaImGui prototype inspired by the workflow of Twisted Tools S-LAYER
 
   This is an original implementation. It does not contain or redistribute S-LAYER code,
   samples, artwork, or proprietary resources.
@@ -13,10 +13,10 @@
     * ReaImGui controller + project state
     * 16 managed REAPER child tracks
     * REAPER source tracks are scanned as sample pools
-    * hidden ADFX Trigger Bridge JSFX -> ReaSamplOmatic5000 playback engines
+    * hidden ADFX Trigger Bridge JSFX -> ReaSamplOmatic5000 -> Duck JSFX playback engines
     * 8 scenes
     * one row per layer: every per-layer control is on it
-    * per-trigger global randomization of pitch, volume, pan, start, reverse and FX
+    * per-trigger global randomization of pitch, volume, pan, start, reverse, FX and side-chain duck
     * CHOKE decides whether a new trigger interrupts the previous shot
     * right-drag down a column to paint a value into every lane it crosses
     * RESET restores one column, or all of them, to a fresh layer's values
@@ -31,6 +31,37 @@
 
 
 
+
+  v0.2.83:
+    * SIDECHAIN Shuffle pairs all 16 lanes into 8 random mates each
+      TRIGGER (same idea as Pair, but the matching is re-rolled)
+
+  v0.2.82:
+    * SIDECHAIN Shuffle mode: each TRIGGER picks a new directed pair
+      (any lane -> any other lane) and walks every permutation before
+      reshuffling, instead of Pair's fixed L1↔L9 mates
+
+  v0.2.81:
+    * key lanes show a horizontal green line on the waveform that rides the
+      side-chain envelope so you can see what is doing the ducking
+
+  v0.2.80:
+    * SIDECHAIN now rides the key lane's audio against a Threshold instead of
+      firing a one-shot envelope on TRIGGER. Loud / quiet / loud on the key
+      ducks a lot / a little / a lot. Amount is max depth above threshold.
+
+  v0.2.79:
+    * ducked lanes show a horizontal red line on the waveform that drops
+      with the side-chain envelope so the duck is visible next to the
+      green playhead
+
+  v0.2.78:
+    * each playback lane owns FX3 ADFX S-Layer Duck after RS5K; user FX stay
+      after it and still hear the ducked dry hit
+    * GLOBAL TRIGGER RANDOM SIDECHAIN: Mode, RND, RND MODE, Amount / Attack /
+      Release min-max. Mode Off writes no duck. RND MODE never picks Off.
+    * each TRIGGER latches mode+values into gmem; LAST TRIGGER replays the
+      last shot's duck; CHOKE does not cancel an in-progress envelope
 
   v0.2.77:
     * REC LAST now actually gates capture: off pauses an open Signal Session
@@ -340,7 +371,7 @@
 ]]
 
 local r = reaper
-local VERSION = "0.2.77"
+local VERSION = "0.2.83"
 local TITLE = "ADFX S-Layer v" .. VERSION
 local EXT_SECTION = "ADFX_SLAYER_V020"
 local OLD_EXT_SECTION = "ADFX_SLAYER_V010"
@@ -349,6 +380,9 @@ local GMEM_NAME = "ADFX_SLayer_v020"
 -- acknowledgement in 29+li, so the slots collide past 20 layers. The installed
 -- trigger JSFX also has to address the index; configure_engine_track checks
 -- that it can and says so if it cannot.
+-- Side-chain duck (high reserved): 80 mode, 81 amount, 82 attack ms, 83 release ms,
+-- 84 threshold. Per-lane input envelopes live at 100+layer.
+-- Shuffle key index for each bed lives at 120+layer (-1 = this lane is not a bed).
 local NUM_LAYERS = 16
 local NUM_SCENES = 8
 local ROOT_NAME = "ADFX S-LAYER"
@@ -368,7 +402,6 @@ local RS5K_NAMES = {
   "VST: ReaSamplOmatic5000 (Cockos)",
   "ReaSamplOmatic5000"
 }
-
 if not r.ImGui_CreateContext then
   r.MB("ADFX S-Layer requires ReaImGui. Install ReaImGui through ReaPack, then restart REAPER.", TITLE, 0)
   return
@@ -464,10 +497,7 @@ local OVERLAP_VOICES = 16
 -- How long a trigger waits for RS5K to have its files ready. Nothing to load
 -- means almost no wait; otherwise it grows with the number of loads issued, so
 -- a full rack is still ready before the note arrives.
-local PRE_ROLL_NONE = 0.010
-local PRE_ROLL_BASE = 0.060
-local PRE_ROLL_PER_SWAP = 0.010
-local PRE_ROLL_MAX = 0.300
+local PRE_ROLL = {NONE=0.010, BASE=0.060, PER_SWAP=0.010, MAX=0.300}
 -- Screen rects of the painted controls, refreshed as the rows are drawn. They
 -- cannot be computed ahead of time: a lane showing its Item slider pushes
 -- everything after it to the right, so the rows are not a uniform grid.
@@ -520,6 +550,32 @@ local global_trigger_random = {
 }
 local GLOBAL_RANDOM_ORDER = {"Pitch","Volume","Pan","Start","Reverse","FX"}
 
+-- Per-shot side-chain duck. Mode 0 Off / 1 Bank (1-8→9-16) / 2 Invert (9-16→1-8) / 3 Pair.
+-- RND rolls Amount/Threshold/Attack/Release. RND MODE picks 1/2/3 only — never Off.
+-- When Mode is Off both randomizers are ignored and nothing ducks.
+-- The JSFX rides key-lane audio against Threshold; Amount is max depth.
+-- Helpers live on this table so they do not burn REAPER's 200-local chunk limit.
+local sidechain = {
+  mode=0, rnd=false, rnd_mode=false,
+  amount_min=0.35, amount_max=0.70,
+  thresh_min=0.12, thresh_max=0.35,
+  attack_min=2.0, attack_max=15.0,
+  release_min=80.0, release_max=320.0,
+  restore_snapshot=nil,
+  file_upgraded=false,
+  file_ready=false,
+  GMEM_MODE=80, GMEM_AMOUNT=81, GMEM_ATTACK=82, GMEM_RELEASE=83, GMEM_THRESH=84,
+  GMEM_SHUFFLE=120,
+  MODE_LABELS={"Off", "1-8→9-16", "9-16→1-8", "Pair", "Shuffle"},
+  FX_NAMES={
+    "JS: ADFX_SLayer_Duck",
+    "ADFX_SLayer_Duck",
+    "JS: ADFX S-Layer Duck",
+    "ADFX S-Layer Duck"
+  },
+  SCHEMA_TAG="// ADFX_SLAYER_DUCK=3",
+}
+
 -- A recorder restore temporarily isolates the exact shot by turning off the global
 -- randomizers that produced it. Keep the user's complete pre-restore global setup
 -- here so one click can return to normal exploration. This is intentionally
@@ -560,6 +616,15 @@ local function serialize_state()
     local g=global_to_save[name]
     out[#out+1]=table.concat({"G",name,g.enabled and 1 or 0,g.min,g.max,g.chance or 0},"|")
   end
+  local sc_to_save=sidechain.restore_snapshot or sidechain
+  out[#out+1]=table.concat({"O","sc_mode",sc_to_save.mode or 0},"|")
+  out[#out+1]=table.concat({"O","sc_rnd",sc_to_save.rnd and 1 or 0},"|")
+  out[#out+1]=table.concat({"O","sc_rnd_mode",sc_to_save.rnd_mode and 1 or 0},"|")
+  out[#out+1]=table.concat({"G","SC",0,
+    sc_to_save.amount_min,sc_to_save.amount_max,
+    sc_to_save.attack_min,sc_to_save.attack_max,
+    sc_to_save.release_min,sc_to_save.release_max,
+    sc_to_save.thresh_min,sc_to_save.thresh_max},"|")
   for si=1,NUM_SCENES do
     local nr=narrow_random[si]
     out[#out+1]=table.concat({"N",si,nr.active and 1 or 0,nr.multiplier or 2.0},"|")
@@ -610,14 +675,40 @@ local function load_state()
       local p=split(line,"|")
       if p[2]=="choke" then choke=p[3]=="1" end
       if p[2]=="last_follow" then last_trigger_follow=p[3]=="1" end
+      if p[2]=="sc_mode" then sidechain.mode=clamp(tonumber(p[3]) or 0,0,4) end
+      if p[2]=="sc_rnd" then sidechain.rnd=p[3]=="1" end
+      if p[2]=="sc_rnd_mode" then sidechain.rnd_mode=p[3]=="1" end
     elseif line:sub(1,2)=="G|" then
       local p=split(line,"|")
-      local g=global_trigger_random[p[2]]
-      if g then
-        g.enabled=p[3]=="1"
-        g.min=tonumber(p[4]) or g.min
-        g.max=tonumber(p[5]) or g.max
-        if g.chance then g.chance=tonumber(p[6]) or g.chance end
+      if p[2]=="SC" then
+        sidechain.amount_min=clamp(tonumber(p[4]) or sidechain.amount_min,0,1)
+        sidechain.amount_max=clamp(tonumber(p[5]) or sidechain.amount_max,0,1)
+        sidechain.attack_min=clamp(tonumber(p[6]) or sidechain.attack_min,0,50)
+        sidechain.attack_max=clamp(tonumber(p[7]) or sidechain.attack_max,0,50)
+        sidechain.release_min=clamp(tonumber(p[8]) or sidechain.release_min,0,800)
+        sidechain.release_max=clamp(tonumber(p[9]) or sidechain.release_max,0,800)
+        sidechain.thresh_min=clamp(tonumber(p[10]) or sidechain.thresh_min,0,1)
+        sidechain.thresh_max=clamp(tonumber(p[11]) or sidechain.thresh_max,0,1)
+        if sidechain.amount_min>sidechain.amount_max then
+          sidechain.amount_min,sidechain.amount_max=sidechain.amount_max,sidechain.amount_min
+        end
+        if sidechain.attack_min>sidechain.attack_max then
+          sidechain.attack_min,sidechain.attack_max=sidechain.attack_max,sidechain.attack_min
+        end
+        if sidechain.release_min>sidechain.release_max then
+          sidechain.release_min,sidechain.release_max=sidechain.release_max,sidechain.release_min
+        end
+        if sidechain.thresh_min>sidechain.thresh_max then
+          sidechain.thresh_min,sidechain.thresh_max=sidechain.thresh_max,sidechain.thresh_min
+        end
+      else
+        local g=global_trigger_random[p[2]]
+        if g then
+          g.enabled=p[3]=="1"
+          g.min=tonumber(p[4]) or g.min
+          g.max=tonumber(p[5]) or g.max
+          if g.chance then g.chance=tonumber(p[6]) or g.chance end
+        end
       end
     elseif line:sub(1,2)=="N|" then
       local p=split(line,"|")
@@ -744,6 +835,139 @@ local function install_bridge_if_missing()
   return true
 end
 
+sidechain.SOURCE = [[
+desc:ADFX S-Layer Duck
+author: ADFXSound
+version: 1.2
+// ADFX_SLAYER_DUCK=3
+// Managed by ADFX S-Layer. One instance lives on each playback lane after RS5K.
+// slider1 is zero-based: 0=L1 ... 15=L16.
+// Modes: 0 Off, 1 Bank, 2 Invert, 3 Pair (L<->L+8), 4 Shuffle (gmem 120+layer = key).
+// Each instance publishes its input envelope to gmem[100+layer]. Beds ride the
+// key envelope against a threshold so GR follows loud / quiet / loud.
+// Shuffle: Lua writes one directed pair per TRIGGER into gmem[120+layer].
+
+options:gmem=ADFX_SLayer_v020
+
+slider1:0<0,15,1>Layer index
+slider2:0<0,4,1{Off,Bank,Invert,Pair,Shuffle}>Mode
+slider3:0<0,1,0.001>Amount
+slider4:0<0,50,0.1>Attack ms
+slider5:20<0,800,0.1>Release ms
+slider6:1<0,1,0.001>Gain
+slider7:0.15<0,1,0.001>Threshold
+
+@init
+layer = floor(slider1 + 0.5);
+gain = 1;
+det = 0;
+latched_mode = 0;
+latched_amount = 0;
+latched_threshold = 0.15;
+latched_attack_ms = 0;
+latched_release_ms = 20;
+att_coeff = 1;
+rel_coeff = 1;
+det_rel_coeff = 1;
+
+@slider
+new_layer = floor(slider1 + 0.5);
+new_layer != layer ? layer = new_layer : layer = new_layer;
+
+@block
+latched_mode = floor(gmem[80] + 0.5);
+latched_mode < 0 ? latched_mode = 0;
+latched_mode > 4 ? latched_mode = 4;
+latched_amount = gmem[81];
+latched_amount < 0 ? latched_amount = 0;
+latched_amount > 1 ? latched_amount = 1;
+latched_attack_ms = gmem[82];
+latched_attack_ms < 0 ? latched_attack_ms = 0;
+latched_release_ms = gmem[83];
+latched_release_ms < 0 ? latched_release_ms = 0;
+latched_threshold = gmem[84];
+latched_threshold < 0 ? latched_threshold = 0;
+latched_threshold > 1 ? latched_threshold = 1;
+slider2 = latched_mode;
+slider3 = latched_amount;
+slider4 = latched_attack_ms;
+slider5 = latched_release_ms;
+slider7 = latched_threshold;
+
+latched_attack_ms <= 0 ? att_coeff = 1 : att_coeff = 1 - exp(-2.2 / (latched_attack_ms * 0.001 * srate));
+latched_release_ms <= 0 ? rel_coeff = 1 : rel_coeff = 1 - exp(-2.2 / (latched_release_ms * 0.001 * srate));
+det_rel_coeff = 1 - exp(-2.2 / max(1, 0.008 * srate));
+mate = layer < 8 ? layer + 8 : layer - 8;
+shuffle_key = floor(gmem[120 + layer] + 0.5);
+
+@sample
+pk = abs(spl0);
+abs(spl1) > pk ? pk = abs(spl1);
+pk > det ? det = pk : det += (pk - det) * det_rel_coeff;
+gmem[100 + layer] = det;
+
+key = 0;
+latched_mode == 1 && layer >= 8 ? (
+  i = 0;
+  loop(8,
+    gmem[100 + i] > key ? key = gmem[100 + i];
+    i += 1;
+  );
+);
+latched_mode == 2 && layer < 8 ? (
+  i = 8;
+  loop(8,
+    gmem[100 + i] > key ? key = gmem[100 + i];
+    i += 1;
+  );
+);
+latched_mode == 3 ? key = gmem[100 + mate];
+latched_mode == 4 && shuffle_key >= 0 && shuffle_key <= 15 && shuffle_key != layer ? (
+  key = gmem[100 + shuffle_key];
+);
+
+target = 1;
+latched_mode > 0 && key > latched_threshold ? (
+  span = 1 - latched_threshold;
+  span < 0.0001 ? span = 0.0001;
+  over = (key - latched_threshold) / span;
+  over > 1 ? over = 1;
+  target = 1 - latched_amount * over;
+);
+
+target < gain ? (
+  gain += (target - gain) * att_coeff;
+) : (
+  gain += (target - gain) * rel_coeff;
+);
+
+spl0 *= gain;
+spl1 *= gain;
+slider6 = gain;
+]]
+
+function sidechain.install_if_missing()
+  local resource = r.GetResourcePath()
+  local effects_dir = resource .. "/Effects/ADFX"
+  r.RecursiveCreateDirectory(effects_dir, 0)
+  local target = effects_dir .. "/ADFX_SLayer_Duck.jsfx"
+
+  local current = nil
+  local f=io.open(target,"rb")
+  if f then current=f:read("*a"); f:close() end
+  if current and current:find(sidechain.SCHEMA_TAG,1,true) then return true end
+
+  local wf,why=io.open(target,"wb")
+  if not wf then
+    status = "Could not update ADFX_SLayer_Duck.jsfx: "..tostring(why)
+    return false
+  end
+  wf:write(sidechain.SOURCE)
+  wf:close()
+  sidechain.file_upgraded = true
+  return true
+end
+
 local function track_by_guid(guid)
   if not guid then return nil end
   for i=0,r.CountTracks(0)-1 do local tr=r.GetTrack(0,i); if r.GetTrackGUID(tr)==guid then return tr end end
@@ -766,6 +990,24 @@ end
 
 local function add_trigger_fx(track)
   return add_fx_any(track, TRIGGER_FX_NAMES)
+end
+
+function sidechain.add_fx(track)
+  return add_fx_any(track, sidechain.FX_NAMES)
+end
+
+function sidechain.is_name(name)
+  local low=(name or ""):lower()
+  return low:find("adfx s-layer duck",1,true) ~= nil
+      or low:find("adfx_slayer_duck",1,true) ~= nil
+end
+
+function sidechain.find(track)
+  for fx=0,r.TrackFX_GetCount(track)-1 do
+    local _,name=r.TrackFX_GetFXName(track,fx,"")
+    if sidechain.is_name(name) then return fx end
+  end
+  return -1
 end
 
 local function find_fx_by_name(track, needle)
@@ -881,22 +1123,83 @@ local function set_sample(track,fx,path)
   return ok2 and rv2~=false
 end
 
-local function hide_managed_fx_windows(tr, bridge, rs)
+local function hide_managed_fx_windows(tr, bridge, rs, duck)
   -- showFlag 2 hides an FX floating window without changing processing.
-  -- This keeps the managed Trigger Bridge / RS5K running silently in the
+  -- This keeps the managed Trigger Bridge / RS5K / Duck running silently in the
   -- background while leaving the track and user FX fully accessible.
   if r.TrackFX_Show then
     if bridge and bridge>=0 then r.TrackFX_Show(tr,bridge,2) end
     if rs and rs>=0 then r.TrackFX_Show(tr,rs,2) end
+    if duck and duck>=0 then r.TrackFX_Show(tr,duck,2) end
   end
 end
 
+function sidechain.needs_recreate(tr, duck)
+  -- v1 was a one-shot trigger envelope (6 sliders). v2 adds Threshold.
+  -- v3 adds Shuffle (mode slider max 4). Rebuild stale instances.
+  if duck<0 then return true end
+  local n=r.TrackFX_GetNumParams(tr,duck) or 0
+  if n<7 then return true end
+  local _,nm=r.TrackFX_GetParamName(tr,duck,6,"")
+  if not (nm and tostring(nm):lower():find("threshold",1,true)) then return true end
+  if r.TrackFX_GetParamEx then
+    local _,mn,mx=r.TrackFX_GetParamEx(tr,duck,1)
+    if type(mx)=="number" and mx<3.5 then return true end
+  end
+  return false
+end
+
+function sidechain.place_on_track(tr, li, force_recreate)
+  local existing=sidechain.find(tr)
+  if not force_recreate and sidechain.needs_recreate(tr,existing) then
+    force_recreate=true
+  end
+  if force_recreate then
+    for fx=r.TrackFX_GetCount(tr)-1,0,-1 do
+      local _,nm=r.TrackFX_GetFXName(tr,fx,"")
+      if sidechain.is_name(nm) then r.TrackFX_Delete(tr,fx) end
+    end
+  end
+
+  local duck=sidechain.find(tr)
+  if duck<0 then duck=sidechain.add_fx(tr) end
+  if duck<0 then return -1 end
+
+  if duck~=2 then
+    r.TrackFX_CopyToTrack(tr,duck,tr,2,true)
+    duck=sidechain.find(tr)
+  end
+  if duck<0 then return -1 end
+
+  -- Only one managed duck. Extra copies of our JSFX are not user FX.
+  for fx=r.TrackFX_GetCount(tr)-1,0,-1 do
+    if fx~=duck then
+      local _,nm=r.TrackFX_GetFXName(tr,fx,"")
+      if sidechain.is_name(nm) then r.TrackFX_Delete(tr,fx) end
+    end
+  end
+  duck=sidechain.find(tr)
+  if duck<0 then return -1 end
+  if duck~=2 then
+    r.TrackFX_CopyToTrack(tr,duck,tr,2,true)
+    duck=sidechain.find(tr)
+  end
+  if duck<0 then return -1 end
+
+  r.TrackFX_SetEnabled(tr,duck,true)
+  r.TrackFX_SetOffline(tr,duck,false)
+  r.TrackFX_SetParam(tr,duck,0,li-1)
+  hide_managed_fx_windows(tr,nil,nil,duck)
+  return duck
+end
+
 local function configure_engine_track(tr, li)
-  -- v0.2.14: playback tracks are user-facing, but managed FX GUIs stay hidden.
-  -- Only the first two FX positions are managed by ADFX S-Layer:
+  -- v0.2.78: playback tracks are user-facing, but managed FX GUIs stay hidden.
+  -- The first three FX positions are managed by ADFX S-Layer:
   --   FX 1 = Trigger Bridge
   --   FX 2 = managed RS5K sampler
-  -- Every FX after those two slots belongs to the user and MUST be preserved.
+  --   FX 3 = Duck
+  -- Every FX after those three slots belongs to the user and MUST be preserved.
 
   -- Remove old ADFX bridge instances only. Never delete arbitrary user FX.
   for fx=r.TrackFX_GetCount(tr)-1,0,-1 do
@@ -960,9 +1263,12 @@ local function configure_engine_track(tr, li)
     r.TrackFX_SetOffline(tr,rs,false)
   end
 
+  -- Duck sits after RS5K and before any user FX so verbs still hear the ducked hit.
+  local duck=sidechain.place_on_track(tr,li,sidechain.file_upgraded)
+
   -- Never leave the managed FX floating after engine creation/repair.
-  hide_managed_fx_windows(tr,bridge,rs)
-  return bridge,rs
+  hide_managed_fx_windows(tr,bridge,rs,duck)
+  return bridge,rs,duck
 end
 
 local function rebuild_tracks()
@@ -984,8 +1290,8 @@ local function rebuild_tracks()
     if not tr then
       r.InsertTrackAtIndex(idx+li,true); tr=r.GetTrack(0,idx+li); r.GetSetMediaTrackInfo_String(tr,"P_NAME",wanted,true)
     end
-    local bridge,rs=configure_engine_track(tr,li)
-    tracks.layers[li]={track=tr,bridge=bridge,rs5k=rs}
+    local bridge,rs,duck=configure_engine_track(tr,li)
+    tracks.layers[li]={track=tr,bridge=bridge,rs5k=rs,duck=duck}
     r.SetMediaTrackInfo_Value(tr,"I_FOLDERDEPTH",li==NUM_LAYERS and -1 or 0)
   end
   r.Undo_EndBlock("Build/repair ADFX S-Layer engine",-1)
@@ -1004,7 +1310,8 @@ end
   The full scan below reads every track name in the project once per layer,
   which a trigger cannot afford to do on the way to making a sound. This looks
   only at what it already holds: the track pointer is still a track, and the
-  two managed slots still hold the bridge and the sampler.
+  first two managed slots still hold the bridge and the sampler. A missing
+  duck is not a failure; Repair Engine / launch put FX3 back.
 ]]
 local function engine_still_valid()
   if not tracks.layers or #tracks.layers<NUM_LAYERS then return false end
@@ -1057,17 +1364,21 @@ local function scan_tracks(force)
     end
     if bridge~=0 or rs~=1 then return false,"managed FX order invalid on layer "..li.." (FX 1 must be bridge, FX 2 must be RS5K)" end
 
-    tracks.layers[li]={track=found,bridge=bridge,rs5k=rs}
+    -- Duck is owned by Repair Engine but missing FX3 must not fail old projects.
+    local duck=sidechain.find(found)
+    tracks.layers[li]={track=found,bridge=bridge,rs5k=rs,duck=duck}
     -- Close managed floating windows left open by older builds, including
     -- projects upgraded directly from v0.2.13.
-    hide_managed_fx_windows(found,bridge,rs)
+    hide_managed_fx_windows(found,bridge,rs,duck>=0 and duck or nil)
   end
   return #tracks.layers==NUM_LAYERS, (#tracks.layers==NUM_LAYERS and "ok" or "incomplete engine")
 end
 
 -- Engine management is automatic. Existing v0.2.x projects are repaired on
 -- launch when an old bridge, missing sampler, or wrong FX order is detected.
+-- A missing duck is accepted so old projects still scan; we put FX3 back below.
 local bridge_file_ready=install_bridge_if_missing()
+sidechain.file_ready=sidechain.install_if_missing()
 local engine_ok,engine_reason=scan_tracks()
 if not engine_ok then
   if bridge_file_ready then
@@ -1098,6 +1409,9 @@ else
         end
       end
       if E.rs5k and E.rs5k>=0 then r.TrackFX_SetEnabled(E.track,E.rs5k,true); r.TrackFX_SetOffline(E.track,E.rs5k,false) end
+      if sidechain.file_ready then
+        E.duck=sidechain.place_on_track(E.track,li,sidechain.file_upgraded)
+      end
     end
   end
   if bridge_file_upgraded then
@@ -1421,6 +1735,19 @@ local function draw_lane_waveform(li,L)
     elseif not act.loop and dur>0 and elapsed>dur then
       lane_activity[li]=nil
     end
+  end
+
+  -- Green = this lane is the key (doing the ducking). Red = this lane is
+  -- being ducked. Both ride live levels: loud key sits high, deep duck sits low.
+  local key_env=sidechain.visual_key(li)
+  if key_env then
+    local ky=y+1+(1-key_env)*(h-2)
+    r.ImGui_DrawList_AddLine(dl,x+2,ky,x+w-2,ky,0x3AE06AFF,2)
+  end
+  local duck_gain=sidechain.visual_gain(li)
+  if duck_gain<0.995 then
+    local gy=y+1+(1-duck_gain)*(h-2)
+    r.ImGui_DrawList_AddLine(dl,x+2,gy,x+w-2,gy,0xE23B3BFF,2)
   end
 end
 -- ReaSamplOmatic5000 cannot play a sample backwards: it has no reverse
@@ -2535,7 +2862,8 @@ local function record_shot(fire, bypass_random)
     end
   end
   shot_journal[#shot_journal+1]={
-    at=r.time_precise(), scene=selected_scene, layers=layers, randomized=randomized}
+    at=r.time_precise(), scene=selected_scene, layers=layers, randomized=randomized,
+    sc=pending_trigger and pending_trigger.sc and copy_table(pending_trigger.sc) or nil}
   if #shot_journal>SHOT_JOURNAL_MAX then table.remove(shot_journal,1) end
 end
 
@@ -2572,6 +2900,11 @@ local function restore_shot(shot)
   -- released; repeated restores while isolated keep pointing back to that setup.
   if not restore_global_random_snapshot then
     restore_global_random_snapshot=copy_table(global_trigger_random)
+    sidechain.restore_snapshot=copy_table(sidechain)
+    sidechain.restore_snapshot.SOURCE=nil
+    sidechain.restore_snapshot.FX_NAMES=nil
+    sidechain.restore_snapshot.MODE_LABELS=nil
+    sidechain.restore_snapshot.SCHEMA_TAG=nil
     restore_lane_random_snapshot={}
     for li=1,NUM_LAYERS do
       -- The shot journal preserves whether that lane was using RND when this
@@ -2598,7 +2931,8 @@ local function restore_shot(shot)
   -- LAST TRIGGER/T is a diagnostic replay of the state the user is looking at.
   -- A recorder restore therefore becomes its source immediately, instead of
   -- falling back to whatever happened to be the newest shot in the journal.
-  retrigger_override={layers=copy_table(target.layers),randomized={}}
+  retrigger_override={layers=copy_table(target.layers),randomized={},
+    sc=shot.sc and copy_table(shot.sc) or nil}
 
   -- A restored shot is an exact diagnostic selection. Temporarily disable ALL
   -- currently-enabled Global Trigger Random parameters so a normal TRIGGER does
@@ -2608,6 +2942,30 @@ local function restore_shot(shot)
   for _,name in ipairs(GLOBAL_RANDOM_ORDER) do
     local g=global_trigger_random[name]
     if g and g.enabled then g.enabled=false; turned_off[#turned_off+1]=name end
+  end
+  -- Pin SIDECHAIN to the shot: no value/mode rolls, and the combo/mins match
+  -- what that take actually used so a later TRIGGER stays on the restored duck.
+  sidechain.rnd=false
+  sidechain.rnd_mode=false
+  if shot.sc then
+    sidechain.mode=clamp(shot.sc.mode or 0,0,4)
+    if shot.sc.amount then
+      sidechain.amount_min=clamp(shot.sc.amount,0,1)
+      sidechain.amount_max=clamp(shot.sc.amount,0,1)
+    end
+    if shot.sc.attack then
+      sidechain.attack_min=clamp(shot.sc.attack,0,50)
+      sidechain.attack_max=clamp(shot.sc.attack,0,50)
+    end
+    if shot.sc.release then
+      sidechain.release_min=clamp(shot.sc.release,0,800)
+      sidechain.release_max=clamp(shot.sc.release,0,800)
+    end
+    if shot.sc.thresh then
+      sidechain.thresh_min=clamp(shot.sc.thresh,0,1)
+      sidechain.thresh_max=clamp(shot.sc.thresh,0,1)
+    end
+    turned_off[#turned_off+1]="SIDECHAIN"
   end
 
   save_state()
@@ -2682,6 +3040,30 @@ local function dispatch_pending_trigger()
   -- Recorder calls temporarily borrow gmem. Re-attach defensively even when the
   -- recorder reported an error, so the note below can never land in its block.
   r.gmem_attach(GMEM_NAME)
+  -- Side-chain values must be latched before the layer counters change, so
+  -- each duck JSFX sees a complete shot (mode + amount + times) on the same
+  -- key-counter edge that starts its envelope.
+  local sc=pending_trigger.sc
+  if sc then
+    r.gmem_write(sidechain.GMEM_MODE,sc.mode or 0)
+    r.gmem_write(sidechain.GMEM_AMOUNT,sc.amount or 0)
+    r.gmem_write(sidechain.GMEM_ATTACK,sc.attack or 0)
+    r.gmem_write(sidechain.GMEM_RELEASE,sc.release or 0)
+    r.gmem_write(sidechain.GMEM_THRESH,sc.thresh or 0)
+  else
+    r.gmem_write(sidechain.GMEM_MODE,0)
+    r.gmem_write(sidechain.GMEM_AMOUNT,0)
+    r.gmem_write(sidechain.GMEM_ATTACK,0)
+    r.gmem_write(sidechain.GMEM_RELEASE,0)
+    r.gmem_write(sidechain.GMEM_THRESH,0)
+  end
+  -- Shuffle map: -1 means this lane is not a bed. Written every shot so a
+  -- leftover Pair/Bank trigger cannot keep a stale directed pair alive.
+  for i=0,15 do
+    local key=-1
+    if sc and sc.mode==4 and sc.map then key=sc.map[i] or -1 end
+    r.gmem_write(sidechain.GMEM_SHUFFLE+i,key)
+  end
   r.gmem_write(1,pending_trigger.velocity or 110)
   local fire=pending_trigger.layers
   local n=pending_trigger.count
@@ -2692,6 +3074,7 @@ local function dispatch_pending_trigger()
       note_lane_trigger(li,pending_trigger.visuals and pending_trigger.visuals[li])
     end
   end
+  sidechain.note_shot(sc,fire)
   -- Written here, next to the note going out, so the journal's clock and the
   -- recorder's are reading the same moment.
   record_shot(fire, pending_trigger.bypass_random)
@@ -2780,6 +3163,8 @@ local function toggle_narrow_random_from_current()
         local g=global_trigger_random[name]
         if g then g.enabled=false end
       end
+      sidechain.rnd=false
+      sidechain.rnd_mode=false
       mark_state_dirty()
       status="Narrow OFF - returned to restored-shot isolation (lane RND + Global Random off)"
     else
@@ -2808,6 +3193,124 @@ local function toggle_narrow_random_from_current()
   -- the enable states and ranges that were configured before it was enabled.
   mark_state_dirty()
   status=rnd_restored and "Captured narrow sweet spot - lane RND settings restored" or "Captured current rack as narrow random sweet spot"
+end
+
+function sidechain.note_shot(sc, fire)
+  -- Mode Off writes no duck, so the previous envelope is left to finish.
+  -- CHOKE does not cancel it either; a later active shot replaces this.
+  if not sc or (sc.mode or 0)==0 then return end
+  local fired={}
+  for i=1,NUM_LAYERS do fired[i]=fire and fire[i] and true or false end
+  sidechain.last_shot={
+    at=r.time_precise(),
+    mode=sc.mode,
+    amount=clamp(sc.amount or 0,0,1),
+    attack=math.max(0,(sc.attack or 0)*0.001),
+    release=math.max(0,(sc.release or 0)*0.001),
+    fired=fired,
+  }
+end
+
+function sidechain.visual_key(li)
+  -- Envelope of a lane that is currently a key for the live SIDECHAIN mode.
+  -- Nil when this lane is not doing any ducking (Off, or not in the key bank).
+  r.gmem_attach(GMEM_NAME)
+  local mode=math.floor((r.gmem_read(sidechain.GMEM_MODE) or 0)+0.5)
+  if mode<1 or mode>4 then return nil end
+  local layer=li-1
+  if mode==1 and layer>=8 then return nil end
+  if mode==2 and layer<8 then return nil end
+  if mode==4 then
+    local used=false
+    for bed=0,15 do
+      local key=math.floor((r.gmem_read(sidechain.GMEM_SHUFFLE+bed) or -1)+0.5)
+      if key==layer then used=true break end
+    end
+    if not used then return nil end
+  end
+  local env=r.gmem_read(100+layer)
+  if type(env)~="number" then return nil end
+  env=clamp(env,0,1)
+  local thresh=tonumber(r.gmem_read(sidechain.GMEM_THRESH)) or 0
+  if env<=thresh then return nil end
+  return env
+end
+
+function sidechain.visual_gain(li)
+  -- Read the live JSFX gain so the red line rides the key audio, not a
+  -- one-shot TRIGGER envelope. slider6 is parameter index 5.
+  local E=tracks.layers and tracks.layers[li]
+  if not (E and E.track and E.duck and E.duck>=0) then return 1 end
+  if r.ValidatePtr2 and not r.ValidatePtr2(0,E.track,"MediaTrack*") then return 1 end
+  local g=r.TrackFX_GetParam(E.track,E.duck,5)
+  if type(g)~="number" then return 1 end
+  return clamp(g,0,1)
+end
+
+function sidechain.next_shuffle_map()
+  -- Pair every lane with a random mate, like Pair but the matching is new
+  -- each TRIGGER: shuffle 0..15 and take (0,1) (2,3) … (14,15).
+  local order={}
+  for i=0,15 do order[i+1]=i end
+  for i=16,2,-1 do
+    local j=math.random(1,i)
+    order[i],order[j]=order[j],order[i]
+  end
+  local map={}
+  for i=1,16,2 do
+    local a,b=order[i],order[i+1]
+    map[a]=b
+    map[b]=a
+  end
+  return map
+end
+
+function sidechain.roll(replay_shot)
+  -- LAST TRIGGER / a recorder-restored override keep the exact duck that
+  -- sounded. A missing journal field (pre-0.2.78 shots) writes Off.
+  if replay_shot then
+    local sc=replay_shot.sc
+    if not sc then return {mode=0,amount=0,attack=0,release=0,thresh=0} end
+    return {
+      mode=clamp(sc.mode or 0,0,4),
+      amount=clamp(sc.amount or 0,0,1),
+      attack=clamp(sc.attack or 0,0,50),
+      release=clamp(sc.release or 0,0,800),
+      thresh=clamp(sc.thresh or 0,0,1),
+      map=sc.map and copy_table(sc.map) or nil,
+    }
+  end
+  if sidechain.mode==0 then
+    return {mode=0,amount=0,attack=0,release=0,thresh=0}
+  end
+  local mode=sidechain.mode
+  if sidechain.rnd_mode then
+    mode=math.random(1,4)
+  end
+  local amount,attack,release,thresh
+  if sidechain.rnd then
+    amount=rand_range(sidechain.amount_min,sidechain.amount_max)
+    attack=rand_range(sidechain.attack_min,sidechain.attack_max)
+    release=rand_range(sidechain.release_min,sidechain.release_max)
+    thresh=rand_range(sidechain.thresh_min,sidechain.thresh_max)
+  else
+    amount=sidechain.amount_min
+    attack=sidechain.attack_min
+    release=sidechain.release_min
+    thresh=sidechain.thresh_min
+  end
+  local map=nil
+  if mode==4 then
+    map=sidechain.next_shuffle_map()
+  end
+  return {
+    mode=mode,
+    amount=clamp(amount,0,1),
+    attack=clamp(attack,0,50),
+    release=clamp(release,0,800),
+    thresh=clamp(thresh,0,1),
+    map=map,
+  }
 end
 
 local function apply_global_trigger_random(scene)
@@ -2921,12 +3424,13 @@ local function trigger(velocity, replay_shot)
   apply_runtime(true)
   if not loaded_any then status="Nothing triggered: assigned pools have no playable audio items"; return end
 
-  local wait=(swaps>0) and math.min(PRE_ROLL_BASE+PRE_ROLL_PER_SWAP*swaps,PRE_ROLL_MAX) or PRE_ROLL_NONE
+  local wait=(swaps>0) and math.min(PRE_ROLL.BASE+PRE_ROLL.PER_SWAP*swaps,PRE_ROLL.MAX) or PRE_ROLL.NONE
   pending_trigger={
     when=r.time_precise()+wait, velocity=velocity or 110, layers=fire, visuals=visuals, count=count,
     chosen=chosen, bypass_random=bypass_random,
     last_trigger=bypass_random,
     follow_recorder=(not bypass_random) or last_trigger_follow,
+    sc=sidechain.roll(replay_shot),
   }
   if bypass_random then
     status=swaps>0
@@ -3154,7 +3658,23 @@ release_restore_iso_settings=function()
     end
   end
 
+  if sidechain.restore_snapshot then
+    local saved=sidechain.restore_snapshot
+    sidechain.mode=clamp(saved.mode or 0,0,4)
+    sidechain.rnd=saved.rnd and true or false
+    sidechain.rnd_mode=saved.rnd_mode and true or false
+    sidechain.amount_min=saved.amount_min
+    sidechain.amount_max=saved.amount_max
+    sidechain.attack_min=saved.attack_min
+    sidechain.attack_max=saved.attack_max
+    sidechain.release_min=saved.release_min
+    sidechain.release_max=saved.release_max
+    sidechain.thresh_min=saved.thresh_min
+    sidechain.thresh_max=saved.thresh_max
+  end
+
   restore_global_random_snapshot=nil
+  sidechain.restore_snapshot=nil
   restore_lane_random_snapshot=nil
   mark_state_dirty()
   status="Restore lock released - Global Random and lane RND settings restored"
@@ -3222,9 +3742,101 @@ local function draw_narrow_controls()
     if restore_pushed>0 then r.ImGui_PopStyleColor(ctx,restore_pushed) end
     if restore_pressed then release_restore_iso_settings() end
     if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-      r.ImGui_SetTooltip(ctx,"Restored shot is temporarily isolated.\nClick RESTORE to exit isolation and reinstate the previous Pitch / Volume / Pan / Start / Reverse / FX Global Random setup and lane RND states.\nNARROW CURRENT can temporarily resume lane RND + narrow variation; turning Narrow OFF returns to this isolated state.")
+      r.ImGui_SetTooltip(ctx,"Restored shot is temporarily isolated.\nClick RESTORE to exit isolation and reinstate the previous Pitch / Volume / Pan / Start / Reverse / FX / SIDECHAIN Global Random setup and lane RND states.\nNARROW CURRENT can temporarily resume lane RND + narrow variation; turning Narrow OFF returns to this isolated state.")
     end
   end
+end
+
+function sidechain.draw_minmax(id, label, vmin, vmax, lo, hi, fmt, width)
+  r.ImGui_PushID(ctx,id)
+  r.ImGui_Text(ctx,label)
+  r.ImGui_SameLine(ctx)
+  r.ImGui_Text(ctx,"Min")
+  r.ImGui_SameLine(ctx)
+  r.ImGui_SetNextItemWidth(ctx,width)
+  local changed,v=r.ImGui_SliderDouble(ctx,"##min",vmin,lo,hi,fmt)
+  global_drag_value_tip(label.." Min",v,fmt)
+  if changed then vmin=math.min(v,vmax) end
+  r.ImGui_SameLine(ctx)
+  r.ImGui_Text(ctx,"Max")
+  r.ImGui_SameLine(ctx)
+  r.ImGui_SetNextItemWidth(ctx,width)
+  changed,v=r.ImGui_SliderDouble(ctx,"##max",vmax,lo,hi,fmt)
+  global_drag_value_tip(label.." Max",v,fmt)
+  if changed then vmax=math.max(v,vmin) end
+  r.ImGui_PopID(ctx)
+  return vmin,vmax
+end
+
+function sidechain.draw()
+  r.ImGui_Spacing(ctx)
+  r.ImGui_Text(ctx,"SIDECHAIN")
+  r.ImGui_SameLine(ctx)
+  r.ImGui_TextDisabled(ctx,"Rides the key lane's audio against Threshold. Mode Off writes no duck.")
+
+  r.ImGui_PushID(ctx,"sidechain")
+  r.ImGui_Text(ctx,"Mode")
+  r.ImGui_SameLine(ctx)
+  r.ImGui_SetNextItemWidth(ctx,140)
+  local mode_label=sidechain.MODE_LABELS[sidechain.mode+1] or "Off"
+  if r.ImGui_BeginCombo(ctx,"##sc_mode",mode_label) then
+    for i=0,4 do
+      local selected=sidechain.mode==i
+      if r.ImGui_Selectable(ctx,sidechain.MODE_LABELS[i+1],selected) then
+        sidechain.mode=i
+        mark_state_dirty()
+      end
+      if selected and r.ImGui_SetItemDefaultFocus then r.ImGui_SetItemDefaultFocus(ctx) end
+    end
+    r.ImGui_EndCombo(ctx)
+  end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"Off: no ducking.\n1-8→9-16: L1-L8 audio ducks L9-L16 when above Threshold.\n9-16→1-8: L9-L16 audio ducks L1-L8.\nPair: each lane ducks its mate (L1↔L9 … L8↔L16).\nShuffle: same as Pair, but every TRIGGER re-rolls all 8 mates (any lane ↔ any other).\nAmount is max depth; the duck rides the key level, not a one-shot.")
+  end
+
+  r.ImGui_SameLine(ctx)
+  local rnd_changed,rnd_on=r.ImGui_Checkbox(ctx,"RND",sidechain.rnd)
+  if rnd_changed then sidechain.rnd=rnd_on and true or false; mark_state_dirty() end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"On: roll Amount / Threshold / Attack / Release in their min-max ranges on each TRIGGER.\nOff: use each Min as the fixed value. Ignored when Mode is Off.")
+  end
+
+  r.ImGui_SameLine(ctx)
+  local rm_changed,rm_on=r.ImGui_Checkbox(ctx,"RND MODE",sidechain.rnd_mode)
+  if rm_changed then sidechain.rnd_mode=rm_on and true or false; mark_state_dirty() end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"On: pick Bank, Invert, Pair, or Shuffle on each TRIGGER. Never picks Off.\nIgnored when Mode is Off.")
+  end
+
+  local w=80
+  local amin,amax=sidechain.draw_minmax("sc_amount","Amount",
+    sidechain.amount_min,sidechain.amount_max,0,1,"%.2f",w)
+  if amin~=sidechain.amount_min or amax~=sidechain.amount_max then
+    sidechain.amount_min,sidechain.amount_max=amin,amax
+    mark_state_dirty()
+  end
+  r.ImGui_SameLine(ctx,300)
+  local tmin,tmax=sidechain.draw_minmax("sc_thresh","Threshold",
+    sidechain.thresh_min,sidechain.thresh_max,0,1,"%.2f",w)
+  if tmin~=sidechain.thresh_min or tmax~=sidechain.thresh_max then
+    sidechain.thresh_min,sidechain.thresh_max=tmin,tmax
+    mark_state_dirty()
+  end
+  r.ImGui_SameLine(ctx,640)
+  local atmin,atmax=sidechain.draw_minmax("sc_attack","Attack",
+    sidechain.attack_min,sidechain.attack_max,0,50,"%.1f ms",w)
+  if atmin~=sidechain.attack_min or atmax~=sidechain.attack_max then
+    sidechain.attack_min,sidechain.attack_max=atmin,atmax
+    mark_state_dirty()
+  end
+  r.ImGui_SameLine(ctx,980)
+  local rmin,rmax=sidechain.draw_minmax("sc_release","Release",
+    sidechain.release_min,sidechain.release_max,20,800,"%.0f ms",w)
+  if rmin~=sidechain.release_min or rmax~=sidechain.release_max then
+    sidechain.release_min,sidechain.release_max=rmin,rmax
+    mark_state_dirty()
+  end
+  r.ImGui_PopID(ctx)
 end
 
 local function draw_global_trigger_random()
@@ -3271,6 +3883,7 @@ local function draw_global_trigger_random()
     end
   end
 
+  sidechain.draw()
   update_global_toggle_drag()
 end
 
@@ -3451,7 +4064,7 @@ local function draw_main()
   r.ImGui_SameLine(ctx)
   if r.ImGui_Button(ctx,"LAST TRIGGER [T]",140,34) then trigger_last(115) end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"Replay the exact previous shot, or the rack most recently restored from the Recorder. Bypasses GLOBAL TRIGGER RANDOM and every lane's RND item selection so the same sound can be diagnosed repeatedly. Shortcut: T")
+    r.ImGui_SetTooltip(ctx,"Replay the exact previous shot, or the rack most recently restored from the Recorder. Bypasses GLOBAL TRIGGER RANDOM, SIDECHAIN rolls, and every lane's RND item selection so the same sound can be diagnosed repeatedly. Shortcut: T")
   end
   r.ImGui_SameLine(ctx)
   local lf_changed,lf_on=r.ImGui_Checkbox(ctx,"REC LAST",last_trigger_follow)
@@ -3770,7 +4383,11 @@ local function loop()
       if r.ImGui_BeginMenu(ctx,"File") then
         if r.ImGui_MenuItem(ctx,"Save state") then save_state(); status="State saved in project" end
         if r.ImGui_MenuItem(ctx,"Repair Engine") then
-          if install_bridge_if_missing() then rebuild_tracks(); sync_sources() end
+          if install_bridge_if_missing() then
+            sidechain.install_if_missing()
+            rebuild_tracks()
+            sync_sources()
+          end
         end
         r.ImGui_EndMenu(ctx)
       end
@@ -3787,8 +4404,9 @@ local function loop()
         r.ImGui_Text(ctx,"GLOBAL TRIGGER RANDOM FX independently turns each printed FX take on or off per TRIGGER.")
         r.ImGui_Text(ctx,"That FX randomizer is disabled until at least one assigned source has an FX take.")
         r.ImGui_Text(ctx,"Tracks with no enabled FX skip the print and assign with the original files.")
-        r.ImGui_Text(ctx,"Each ADFX S-Layer playback track owns FX 1-2; place your plugins after RS5K.")
-        r.ImGui_Text(ctx,"Repair Engine preserves all user FX after the managed sampler.")
+        r.ImGui_Text(ctx,"Each ADFX S-Layer playback track owns FX 1-3 (bridge, RS5K, duck); place your plugins after the duck.")
+        r.ImGui_Text(ctx,"Repair Engine preserves all user FX after the managed duck.")
+        r.ImGui_Text(ctx,"SIDECHAIN rides the key lane's audio against Threshold (Bank / Invert / Pair / Shuffle). Amount is max depth.")
         r.ImGui_Text(ctx,"The JSFX bridge remains only for realtime trigger delivery.")
         r.ImGui_Text(ctx,"Every layer control is on its row.")
         r.ImGui_Text(ctx,"Loop / Rev / Mute / Solo are the four boxes under those headers at the right of each lane.")

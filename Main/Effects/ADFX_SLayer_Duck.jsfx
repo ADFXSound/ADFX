@@ -1,0 +1,108 @@
+desc:ADFX S-Layer Duck
+author: ADFXSound
+version: 1.2
+// ADFX_SLAYER_DUCK=3
+// Managed by ADFX S-Layer. One instance lives on each playback lane after RS5K.
+// slider1 is zero-based: 0=L1 ... 15=L16.
+// Modes: 0 Off, 1 Bank, 2 Invert, 3 Pair (L<->L+8), 4 Shuffle (gmem 120+layer = key).
+// Each instance publishes its input envelope to gmem[100+layer]. Beds ride the
+// key envelope against a threshold so GR follows loud / quiet / loud.
+// Shuffle: Lua writes one directed pair per TRIGGER into gmem[120+layer].
+
+options:gmem=ADFX_SLayer_v020
+
+slider1:0<0,15,1>Layer index
+slider2:0<0,4,1{Off,Bank,Invert,Pair,Shuffle}>Mode
+slider3:0<0,1,0.001>Amount
+slider4:0<0,50,0.1>Attack ms
+slider5:20<0,800,0.1>Release ms
+slider6:1<0,1,0.001>Gain
+slider7:0.15<0,1,0.001>Threshold
+
+@init
+layer = floor(slider1 + 0.5);
+gain = 1;
+det = 0;
+latched_mode = 0;
+latched_amount = 0;
+latched_threshold = 0.15;
+latched_attack_ms = 0;
+latched_release_ms = 20;
+att_coeff = 1;
+rel_coeff = 1;
+det_rel_coeff = 1;
+
+@slider
+new_layer = floor(slider1 + 0.5);
+new_layer != layer ? layer = new_layer : layer = new_layer;
+
+@block
+latched_mode = floor(gmem[80] + 0.5);
+latched_mode < 0 ? latched_mode = 0;
+latched_mode > 4 ? latched_mode = 4;
+latched_amount = gmem[81];
+latched_amount < 0 ? latched_amount = 0;
+latched_amount > 1 ? latched_amount = 1;
+latched_attack_ms = gmem[82];
+latched_attack_ms < 0 ? latched_attack_ms = 0;
+latched_release_ms = gmem[83];
+latched_release_ms < 0 ? latched_release_ms = 0;
+latched_threshold = gmem[84];
+latched_threshold < 0 ? latched_threshold = 0;
+latched_threshold > 1 ? latched_threshold = 1;
+slider2 = latched_mode;
+slider3 = latched_amount;
+slider4 = latched_attack_ms;
+slider5 = latched_release_ms;
+slider7 = latched_threshold;
+
+latched_attack_ms <= 0 ? att_coeff = 1 : att_coeff = 1 - exp(-2.2 / (latched_attack_ms * 0.001 * srate));
+latched_release_ms <= 0 ? rel_coeff = 1 : rel_coeff = 1 - exp(-2.2 / (latched_release_ms * 0.001 * srate));
+det_rel_coeff = 1 - exp(-2.2 / max(1, 0.008 * srate));
+mate = layer < 8 ? layer + 8 : layer - 8;
+shuffle_key = floor(gmem[120 + layer] + 0.5);
+
+@sample
+pk = abs(spl0);
+abs(spl1) > pk ? pk = abs(spl1);
+pk > det ? det = pk : det += (pk - det) * det_rel_coeff;
+gmem[100 + layer] = det;
+
+key = 0;
+latched_mode == 1 && layer >= 8 ? (
+  i = 0;
+  loop(8,
+    gmem[100 + i] > key ? key = gmem[100 + i];
+    i += 1;
+  );
+);
+latched_mode == 2 && layer < 8 ? (
+  i = 8;
+  loop(8,
+    gmem[100 + i] > key ? key = gmem[100 + i];
+    i += 1;
+  );
+);
+latched_mode == 3 ? key = gmem[100 + mate];
+latched_mode == 4 && shuffle_key >= 0 && shuffle_key <= 15 && shuffle_key != layer ? (
+  key = gmem[100 + shuffle_key];
+);
+
+target = 1;
+latched_mode > 0 && key > latched_threshold ? (
+  span = 1 - latched_threshold;
+  span < 0.0001 ? span = 0.0001;
+  over = (key - latched_threshold) / span;
+  over > 1 ? over = 1;
+  target = 1 - latched_amount * over;
+);
+
+target < gain ? (
+  gain += (target - gain) * att_coeff;
+) : (
+  gain += (target - gain) * rel_coeff;
+);
+
+spl0 *= gain;
+spl1 *= gain;
+slider6 = gain;
