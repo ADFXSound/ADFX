@@ -19,7 +19,7 @@ local Buffer = dofile(MODULE_DIR .. 'ADFX_Recorder_Buffer.lua')
 
 local Engine = {}
 Engine.__index = Engine
-Engine.VERSION = '1.7.6'
+Engine.VERSION = '1.7.9'
 
 local EXT_KEY = 'P_EXT:ADFX_RECORDER'
 local PEAK_BUCKETS = 1400
@@ -52,6 +52,10 @@ local ACTION_GLUE_ITEMS = 41588
 -- hidden scratch items, which is how a take longer than one export chunk
 -- never became playable.
 local ACTION_GLUE_ITEMS_IGNORE_TIME = 40362
+-- Peaks: Build any missing peaks. Glue (40362) also rebuilds them, which is
+-- why a glued drop suddenly shows a waveform; this starts the same cache
+-- without rewriting the file.
+local ACTION_BUILD_MISSING_PEAKS = 40047
 
 -- Isolated capture parks the transport this far past the end of the project,
 -- so nothing on the timeline plays into the recording.
@@ -153,6 +157,75 @@ end
 
 function Engine:_has(fn)
   return type(self.api[fn]) == 'function'
+end
+
+--[[
+  The recorder strip draws its own peaks. The arrange view does not: it needs
+  a .reapeaks cache. AddMediaItemToTrack + PCM_Source_CreateFromFile never
+  starts that builder, so a dropped take is audible but drawn as a blank
+  block until REAPER's background rebuild (or Glue) fills the cache.
+
+  This runs on its own reaper.defer chain — not Engine:tick() — so a peak
+  error cannot stop recording or live metering.
+]]
+function Engine:_request_arrange_peaks(path, item)
+  local R = self.api
+  if type(path) ~= 'string' or path == '' then return end
+  if not self:_has('PCM_Source_BuildPeaks') then return end
+
+  local source
+  local owned = false
+  if item and self:_has('GetMediaItemTake_Source') then
+    local take = R.GetActiveTake(item)
+    source = take and R.GetMediaItemTake_Source(take)
+  end
+  if not source and self:_has('PCM_Source_CreateFromFile') then
+    source = R.PCM_Source_CreateFromFile(path)
+    owned = source ~= nil
+  end
+  if not source then return end
+
+  local defer = R.defer or reaper.defer
+  if type(defer) ~= 'function' then
+    if owned and R.PCM_Source_Destroy then pcall(R.PCM_Source_Destroy, source) end
+    return
+  end
+
+  local function finish()
+    pcall(R.PCM_Source_BuildPeaks, source, 2)
+    if item and R.ValidatePtr2 and R.ValidatePtr2(0, item, 'MediaItem*')
+        and R.UpdateItemInProject then
+      pcall(R.UpdateItemInProject, item)
+    end
+    if R.UpdateArrange then pcall(R.UpdateArrange) end
+    if owned and R.PCM_Source_Destroy then pcall(R.PCM_Source_Destroy, source) end
+  end
+
+  local ok, remaining = pcall(R.PCM_Source_BuildPeaks, source, 0)
+  if not ok then
+    if owned and R.PCM_Source_Destroy then pcall(R.PCM_Source_Destroy, source) end
+    return
+  end
+  if not remaining or remaining == 0 then
+    finish()
+    return
+  end
+
+  local tries = 0
+  local function continue_peaks()
+    tries = tries + 1
+    local ok2, left = pcall(R.PCM_Source_BuildPeaks, source, 1)
+    if not ok2 or tries > 2000 then
+      finish()
+      return
+    end
+    if (left or 0) == 0 then
+      finish()
+      return
+    end
+    defer(continue_peaks)
+  end
+  defer(continue_peaks)
 end
 
 function Engine:_track_tag(track)
@@ -798,6 +871,33 @@ function Engine:_poll_auto_stop()
     self:_notify('nothing was heard after the trigger, so the take was closed')
     self:stop()
   end
+end
+
+--[[
+  Keep the current follow session from swallowing a diagnostic replay.
+  Signal Session stays armed but paused. An Auto take is closed so the
+  replay is not appended to the previous trigger.
+]]
+function Engine:skip_follow()
+  if self.state ~= 'recording' then return false end
+  if self.signal_record then
+    if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(true) end
+    local now = self.api.time_precise()
+    if self.signal_segment then
+      self.signal_segment.file_end = self:elapsed()
+      self.signal_segment.wall_end = now
+      self.signal_segment = nil
+    end
+    self.signal_active = false
+    self.signal_heard = false
+    self.signal_quiet_since = nil
+    return true
+  end
+  if self.auto_active then
+    self:stop()
+    return true
+  end
+  return false
 end
 
 function Engine:set_auto_record(on)
@@ -1542,6 +1642,9 @@ function Engine:_poll_finalize()
   self.export_wait_started = nil
   self.export_last_recover = nil
   if self.backend == 'buffer' and self.buffer then self.buffer:set_paused(false) end
+  -- Start the arrange .reapeaks file now, while the take is already on disk
+  -- and recording is over. A later drag then has a cache to draw.
+  self:_request_arrange_peaks(path)
   R.UpdateArrange()
 end
 
@@ -1730,6 +1833,11 @@ function Engine:insert(target)
     Util.take_name(self.name_prefix, self.current.index, self.section), true)
 
   R.PreventUIRefresh(-1)
+  if R.UpdateItemInProject then R.UpdateItemInProject(item) end
+  -- Ask REAPER to fill missing arrange peaks for this file. Glue (40362)
+  -- does the same thing by writing a new file; this only builds the cache.
+  if R.Main_OnCommand then R.Main_OnCommand(ACTION_BUILD_MISSING_PEAKS, 0) end
+  self:_request_arrange_peaks(self.current.path, item)
   R.UpdateArrange()
   R.Undo_EndBlock('ADFX Recorder: insert recording', -1)
   return item

@@ -5,6 +5,10 @@
 --[[
   ADFX_Recorder.lua  —  shared output recorder strip for the ADFX tools
   ----------------------------------------------------------------------------
+  v1.7.9: start REAPER arrange peaks after a take is ready / inserted, so a
+          drag-to-timeline item shows its waveform without waiting or gluing.
+          Peak building runs on its own defer and never inside Engine:tick().
+  ----------------------------------------------------------------------------
   v1.7.7: long buffer takes (over one JSFX export chunk, ~10 s at 96 kHz)
           now finalize into one file so Play and drag-to-timeline work.
   ----------------------------------------------------------------------------
@@ -73,7 +77,7 @@ local Engine = dofile(MODULE_DIR .. 'ADFX_Recorder_Engine.lua')
 
 local Recorder = {}
 Recorder.__index = Recorder
-Recorder.VERSION = '1.7.7'
+Recorder.VERSION = '1.7.9'
 Recorder.Util = Util
 Recorder.Engine = Engine
 
@@ -220,6 +224,7 @@ function Recorder:recording() return self.engine.current end
   so it is safe to call unconditionally from a trigger path.
 ]]
 function Recorder:signal_trigger() return self.engine:signal_trigger() end
+function Recorder:skip_follow() return self.engine:skip_follow() end
 function Recorder:set_auto_record(on) return self.engine:set_auto_record(on) end
 function Recorder:auto_enabled() return self.engine.auto_record == true end
 function Recorder:set_signal_record(on) return self.engine:set_signal_record(on) end

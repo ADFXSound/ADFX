@@ -32,6 +32,32 @@
 
 
 
+  v0.2.77:
+    * REC LAST now actually gates capture: off pauses an open Signal Session
+      (and closes an open Auto take) before LAST TRIGGER plays, so the replay
+      is not appended to the current recording
+
+  v0.2.76:
+    * LAST TRIGGER can follow Auto / Signal Session the same way TRIGGER does.
+      REC LAST next to the button turns that off when a replay should stay
+      diagnostic-only
+
+  v0.2.75:
+    * ASSIGN + FX keeps printing when another program is in front instead of
+      pausing; STOP ALL stays clickable because one item is printed per frame
+    * media-offline-on-inactive is still held off during the print so items
+      do not stay offline after a focus change
+
+  v0.2.74:
+    * TAKE 1 and +2 SEC run the ADFX item helpers on the current selection
+      without leaving S-Layer
+    * ASSIGN and ASSIGN + FX run as a cancellable pipeline; STOP ALL aborts
+      the import as well as sounding voices
+    * ASSIGN + FX no longer leaves printed items offline when REAPER loses
+      focus: media-offline-on-inactive is held off during the print, printing
+      pauses while another program is in front, and new FX takes are forced
+      online with peaks rebuilt
+
   v0.2.73:
     * GLOBAL TRIGGER RANDOM FX checkbox independently turns each source's
       printed FX take on or off per TRIGGER; ignored when no FX take exists
@@ -67,6 +93,7 @@
       shot is fired, including lanes that do not participate in the new shot
     * added STOP ALL beside the trigger controls for immediately killing long sounds
     * CLEAR LANES now performs STOP ALL first, so unassigned long sounds cannot keep ringing
+    * STOP ALL also aborts ASSIGN / ASSIGN + FX while either is still importing
 
   v0.2.61:
     * recorder module is now an optional dependency: if ADFX_Recorder.lua is not
@@ -313,7 +340,7 @@
 ]]
 
 local r = reaper
-local VERSION = "0.2.73"
+local VERSION = "0.2.77"
 local TITLE = "ADFX S-Layer v" .. VERSION
 local EXT_SECTION = "ADFX_SLAYER_V020"
 local OLD_EXT_SECTION = "ADFX_SLAYER_V010"
@@ -429,6 +456,9 @@ local bridge_layer_limit = nil
 -- CHOKE on: a new trigger cuts whatever the layer is still playing.
 -- CHOKE off: shots pile up and ring out over each other.
 local choke = true
+-- When on, LAST TRIGGER / T is treated like TRIGGER for Auto and Signal Session.
+-- Off keeps LAST TRIGGER diagnostic-only so a replay does not open a new take.
+local last_trigger_follow = true
 local CHOKE_VOICES = 1
 local OVERLAP_VOICES = 16
 -- How long a trigger waits for RS5K to have its files ready. Nothing to load
@@ -520,6 +550,7 @@ end
 local function serialize_state()
   local out = {"version="..VERSION, "scene="..selected_scene}
   out[#out+1]=table.concat({"O","choke",choke and 1 or 0},"|")
+  out[#out+1]=table.concat({"O","last_follow",last_trigger_follow and 1 or 0},"|")
   -- RESTORE lock is a temporary diagnostic state. If the project is saved while
   -- it is active, persist the user's pre-restore broad random setup rather than
   -- the temporarily-disabled runtime toggles. That way closing S-Layer while
@@ -578,6 +609,7 @@ local function load_state()
     if line:sub(1,2)=="O|" then
       local p=split(line,"|")
       if p[2]=="choke" then choke=p[3]=="1" end
+      if p[2]=="last_follow" then last_trigger_follow=p[3]=="1" end
     elseif line:sub(1,2)=="G|" then
       local p=split(line,"|")
       local g=global_trigger_random[p[2]]
@@ -1766,6 +1798,190 @@ slayer_fx.set_hash=function(tr,hash)
     r.GetSetMediaTrackInfo_String(tr,slayer_fx.HASH_EXT,hash or "",true)
   end
 end
+-- Assign + FX can take long enough that the user tabs away. REAPER's default
+-- "set media offline when application is not active" then offlines the files
+-- we just printed, and later FX takes fail. Hold that preference off for the
+-- print, pause while another program is in front, and force new takes online.
+slayer_fx.job=nil
+slayer_fx.guard_items={}
+slayer_fx.guard_until=0
+slayer_fx.guard_next=0
+slayer_fx.peak_jobs={}
+slayer_fx.offlineinact_held=false
+slayer_fx.offlineinact_saved=nil
+
+slayer_fx.read_offlineinact=function()
+  if r.get_config_var_string then
+    local ok,buf=r.get_config_var_string("offlineinact")
+    if ok then
+      local n=tonumber(buf)
+      if n then return n end
+    end
+  end
+  if r.SNM_GetIntConfigVar then return r.SNM_GetIntConfigVar("offlineinact",1) end
+  return 1
+end
+
+slayer_fx.write_offlineinact=function(value)
+  value=tostring(value)
+  if r.set_config_var_string then
+    -- persist=0 keeps this in memory only; do not rewrite the user's reaper.ini
+    local wrote=r.set_config_var_string("offlineinact",value,0)
+    if wrote and wrote~=0 then return true end
+  end
+  if r.SNM_SetIntConfigVar then return r.SNM_SetIntConfigVar("offlineinact",tonumber(value) or 0) end
+  return false
+end
+
+slayer_fx.hold_offlineinact=function()
+  if slayer_fx.offlineinact_held then return end
+  local cur=slayer_fx.read_offlineinact()
+  slayer_fx.offlineinact_saved=cur
+  -- bit 0 = set media offline when inactive. Clear it so a focus change
+  -- cannot offline the files we just printed.
+  local cleared=cur-(cur%2)
+  if cleared~=cur then slayer_fx.write_offlineinact(cleared) end
+  slayer_fx.offlineinact_held=true
+end
+
+slayer_fx.release_offlineinact=function()
+  if not slayer_fx.offlineinact_held then return end
+  if slayer_fx.offlineinact_saved~=nil then
+    slayer_fx.write_offlineinact(slayer_fx.offlineinact_saved)
+  end
+  slayer_fx.offlineinact_held=false
+  slayer_fx.offlineinact_saved=nil
+end
+
+slayer_fx.app_active=function()
+  if not (r.JS_Window_GetForeground and r.GetMainHwnd) then return true end
+  local fg=r.JS_Window_GetForeground()
+  local main=r.GetMainHwnd()
+  if not (fg and main) then return true end
+  local hwnd=fg
+  for _=1,10 do
+    if hwnd==main then return true end
+    if not r.JS_Window_GetParent then break end
+    hwnd=r.JS_Window_GetParent(hwnd)
+    if not hwnd then break end
+  end
+  if r.JS_Window_GetTitle then
+    local title=r.JS_Window_GetTitle(fg) or ""
+    if title:find("REAPER",1,true) or title:find("ADFX",1,true) then return true end
+  end
+  return false
+end
+
+slayer_fx.chunk_online=function(item)
+  if not (r.GetItemStateChunk and r.SetItemStateChunk) then return end
+  local ok,chunk=r.GetItemStateChunk(item,"",false)
+  if not (ok and type(chunk)=="string") then return end
+  local next_chunk=chunk:gsub("\nOFFLINE\n","\n")
+  next_chunk=next_chunk:gsub("_OFFLINE_","")
+  if next_chunk~=chunk then r.SetItemStateChunk(item,next_chunk,false) end
+end
+
+slayer_fx.source_offline=function(src)
+  if not src then return false end
+  if r.CF_GetMediaSourceOnline then return r.CF_GetMediaSourceOnline(src)==false end
+  return false
+end
+
+slayer_fx.queue_peaks=function(src,item)
+  if not (src and r.PCM_Source_BuildPeaks) then return end
+  local need=r.PCM_Source_BuildPeaks(src,0)
+  if need and need~=0 then
+    slayer_fx.peak_jobs[#slayer_fx.peak_jobs+1]={src=src,item=item}
+  end
+end
+
+slayer_fx.bring_items_online=function(items,opts)
+  if not items then return end
+  local build_peaks=not (opts and opts.skip_peaks)
+  local only_offline=opts and opts.only_offline
+  for _,item in ipairs(items) do
+    if r.ValidatePtr2(0,item,"MediaItem*") then
+      local dirty=false
+      slayer_fx.chunk_online(item)
+      local n=slayer_fx.take_count(item)
+      for i=0,n-1 do
+        local take=slayer_fx.take_at(item,i)
+        local src=take and r.GetMediaItemTake_Source(take)
+        if src then
+          local offline=slayer_fx.source_offline(src)
+          if offline or not only_offline then
+            if r.CF_SetMediaSourceOnline then r.CF_SetMediaSourceOnline(src,true) end
+            if build_peaks and (offline or not only_offline) then slayer_fx.queue_peaks(src,item) end
+            dirty=true
+          end
+        end
+      end
+      if dirty and r.UpdateItemInProject then r.UpdateItemInProject(item) end
+    end
+  end
+end
+
+slayer_fx.tick_peaks=function()
+  local jobs=slayer_fx.peak_jobs
+  if #jobs==0 then return end
+  if not r.PCM_Source_BuildPeaks then slayer_fx.peak_jobs={}; return end
+  local remain={}
+  for i=1,#jobs do
+    local job=jobs[i]
+    local left=r.PCM_Source_BuildPeaks(job.src,1)
+    if left==0 then
+      r.PCM_Source_BuildPeaks(job.src,2)
+      if job.item and r.ValidatePtr2(0,job.item,"MediaItem*") and r.UpdateItemInProject then
+        r.UpdateItemInProject(job.item)
+      end
+    else
+      remain[#remain+1]=job
+    end
+  end
+  slayer_fx.peak_jobs=remain
+  if #remain==0 then r.UpdateArrange() end
+end
+
+slayer_fx.watch_items=function(items)
+  if not items then return end
+  for i=1,#items do slayer_fx.guard_items[#slayer_fx.guard_items+1]=items[i] end
+  slayer_fx.guard_until=r.time_precise()+120
+  slayer_fx.guard_next=0
+end
+
+slayer_fx.tick_guard=function()
+  if slayer_fx.guard_until<=0 then return end
+  local now=r.time_precise()
+  if now>=slayer_fx.guard_next and #slayer_fx.guard_items>0 then
+    slayer_fx.guard_next=now+0.5
+    slayer_fx.bring_items_online(slayer_fx.guard_items,{only_offline=true,skip_peaks=false})
+  end
+  if now>=slayer_fx.guard_until then
+    slayer_fx.guard_items={}
+    slayer_fx.guard_until=0
+    slayer_fx.release_offlineinact()
+  end
+end
+
+slayer_fx.run_helper=function(filename,ok_status)
+  if r.CountSelectedMediaItems(0)<=0 then
+    status="Select items in the arrange view first"
+    return
+  end
+  local path=r.GetResourcePath()..ADFX_SEP.."Scripts"..ADFX_SEP.."ADFX"..ADFX_SEP..filename
+  if r.file_exists and not r.file_exists(path) then
+    status="Helper not installed: "..filename
+    return
+  end
+  local chunk=loadfile(path)
+  if not chunk then
+    status="Could not load "..filename
+    return
+  end
+  local ok=pcall(chunk)
+  status=ok and ok_status or (filename.." failed")
+end
+
 slayer_fx.crop_to_dry=function(items)
   for _,item in ipairs(items) do
     local takes=slayer_fx.take_count(item)
@@ -1793,6 +2009,7 @@ slayer_fx.print_items=function(tr,items)
       if take then r.GetSetMediaItemTakeInfo_String(take,"P_NAME","ADFX FX",true) end
     end
   end
+  slayer_fx.bring_items_online(items)
 end
 slayer_fx.refresh_lanes=function(tr)
   if not tr then return end
@@ -1946,12 +2163,15 @@ slayer_fx.toggle_lane=function(li)
   end
   local saved_items=save_item_selection()
   local saved_tracks=save_track_selection()
+  slayer_fx.hold_offlineinact()
   r.Undo_BeginBlock()
   local result=apply_track_fx_to_assets(tr)
   restore_item_selection(saved_items)
   restore_track_selection(saved_tracks)
   r.UpdateArrange()
   r.Undo_EndBlock("ADFX S-Layer: print track FX",-1)
+  slayer_fx.bring_items_online(items)
+  slayer_fx.watch_items(items)
   if result=="printed" then
     L.fx_wet=true
     slayer_fx.refresh_lanes(tr)
@@ -1965,8 +2185,15 @@ end
 --- the onboarding path: select the tracks once and skip the per-lane menus.
 --- `opts.apply_fx` prints each track's enabled FX chain onto its items first,
 --- skipping tracks whose stored chain hash still matches.
+---
+--- Printing is a deferred pipeline so STOP ALL can abort it, and so a focus
+--- change cannot freeze REAPER inside a long 40209 render.
 local function assign_selected_tracks(opts)
   opts=opts or {}
+  if slayer_fx.job then
+    status="Assign already running — press STOP ALL to cancel"
+    return
+  end
   local apply_fx=opts.apply_fx==true
   local sel=selected_source_tracks()
   if #sel==0 then
@@ -1976,9 +2203,8 @@ local function assign_selected_tracks(opts)
     return
   end
   local layers=scenes[selected_scene].layers
-  local filled={}
-  local printed,skipped,already=0,0,0
   local assigned={}
+  local already=0
   for li=1,NUM_LAYERS do
     local g=layers[li].source_guid
     if g~="" then assigned[g]=true end
@@ -1987,44 +2213,56 @@ local function assign_selected_tracks(opts)
     if assigned[r.GetTrackGUID(tr)] then already=already+1 end
   end
 
-  local saved_items,saved_tracks
+  slayer_fx.hold_offlineinact()
+  slayer_fx.job={
+    apply_fx=apply_fx,
+    sel=sel,
+    tracks=sel,
+    idx=1,
+    printed=0,
+    skipped=0,
+    already=already,
+    assigned=assigned,
+    filled={},
+    printed_items={},
+    saved_items=save_item_selection(),
+    saved_tracks=save_track_selection(),
+    undo_open=true,
+    armed=false,
+    queue=nil,
+    queue_tr=nil,
+    queue_hash=nil,
+  }
+  r.Undo_BeginBlock()
   if apply_fx then
-    saved_items=save_item_selection()
-    saved_tracks=save_track_selection()
-    r.Undo_BeginBlock()
-    for _,tr in ipairs(sel) do
-      local result=apply_track_fx_to_assets(tr)
-      if result=="printed" then
-        printed=printed+1
-        slayer_fx.refresh_lanes(tr)
-      elseif result=="skipped" then
-        skipped=skipped+1
-      end
-    end
+    status=string.format("Assign + FX 0/%d — STOP ALL cancels",#sel)
+  else
+    status="Assigning selected tracks…"
   end
+end
 
-  for _,tr in ipairs(sel) do
+slayer_fx.assign_lanes=function(job)
+  local layers=scenes[selected_scene].layers
+  for _,tr in ipairs(job.sel) do
     local guid=r.GetTrackGUID(tr)
-    if not assigned[guid] then
+    if not job.assigned[guid] then
       local target
       for li=1,NUM_LAYERS do
         if layers[li].source_guid=="" then target=li; break end
       end
       if not target then break end
       if set_layer_source(target,tr) then
-        filled[#filled+1]=target
-        assigned[guid]=true
+        job.filled[#job.filled+1]=target
+        job.assigned[guid]=true
       end
     end
   end
+end
 
-  if apply_fx then
-    restore_item_selection(saved_items)
-    restore_track_selection(saved_tracks)
-    r.UpdateArrange()
-    r.Undo_EndBlock("ADFX S-Layer: assign selected with track FX",-1)
-  end
-
+slayer_fx.apply_assign_result=function(job)
+  local printed,skipped,already=job.printed,job.skipped,job.already
+  local filled,sel=job.filled,job.sel
+  local apply_fx=job.apply_fx
   local function fx_extra()
     if printed>0 and skipped>0 then
       return string.format(", printed FX on %d, skipped %d (unchanged)",printed,skipped)
@@ -2071,11 +2309,118 @@ local function assign_selected_tracks(opts)
     used,used==1 and "" or "s",where,extra)
 end
 
-local function stop_all_voices(set_status)
+slayer_fx.finish_job=function(job,cancelled)
+  if job.undo_open then
+    restore_item_selection(job.saved_items)
+    restore_track_selection(job.saved_tracks)
+    r.UpdateArrange()
+    local label
+    if job.apply_fx then
+      label=cancelled and "ADFX S-Layer: assign + FX (cancelled)" or "ADFX S-Layer: assign selected with track FX"
+    else
+      label=cancelled and "ADFX S-Layer: assign selected (cancelled)" or "ADFX S-Layer: assign selected"
+    end
+    r.Undo_EndBlock(label,-1)
+    job.undo_open=false
+  end
+  slayer_fx.job=nil
+  if job.printed_items and #job.printed_items>0 then
+    slayer_fx.bring_items_online(job.printed_items)
+    slayer_fx.watch_items(job.printed_items)
+  else
+    slayer_fx.release_offlineinact()
+  end
+end
+
+slayer_fx.cancel_job=function()
+  local job=slayer_fx.job
+  if not job then return false end
+  slayer_fx.finish_job(job,true)
+  return true
+end
+
+slayer_fx.queue_track_print=function(job,tr)
+  if not track_has_enabled_fx(tr) then return nil end
+  local audio_items=slayer_fx.audio_items(tr)
+  if #audio_items==0 then return nil end
+  local missing_items={}
+  for _,item in ipairs(audio_items) do
+    if not slayer_fx.find_fx(item) then missing_items[#missing_items+1]=item end
+  end
+  local hash=slayer_fx.chain_hash(tr)
+  local plan=slayer_fx.plan_print(hash,slayer_fx.get_hash(tr),#missing_items)
+  if plan=="skipped" then return "skipped" end
+  local to_print=audio_items
+  if plan=="all" then slayer_fx.crop_to_dry(audio_items)
+  else to_print=missing_items end
+  job.queue=to_print
+  job.queue_tr=tr
+  job.queue_hash=hash
+  return "queued"
+end
+
+slayer_fx.tick_pipeline=function()
+  slayer_fx.tick_peaks()
+  slayer_fx.tick_guard()
+  local job=slayer_fx.job
+  if not job then return end
+  -- Leave one UI frame after the button press so STOP ALL can be clicked
+  -- before the first blocking Apply-FX render starts.
+  if not job.armed then
+    job.armed=true
+    return
+  end
+
+  if job.apply_fx then
+    if job.queue and #job.queue>0 then
+      local item=table.remove(job.queue,1)
+      if r.ValidatePtr2(0,item,"MediaItem*") and job.queue_tr
+          and r.ValidatePtr2(0,job.queue_tr,"MediaTrack*") then
+        slayer_fx.print_items(job.queue_tr,{item})
+        job.printed_items[#job.printed_items+1]=item
+      end
+      status=string.format("Assign + FX %d/%d — STOP ALL cancels",
+        math.min(job.idx-1,#job.tracks),#job.tracks)
+      return
+    end
+    if job.queue_tr then
+      slayer_fx.set_hash(job.queue_tr,job.queue_hash)
+      slayer_fx.refresh_lanes(job.queue_tr)
+      slayer_fx.bring_items_online(slayer_fx.audio_items(job.queue_tr))
+      job.printed=job.printed+1
+      job.queue=nil
+      job.queue_tr=nil
+      job.queue_hash=nil
+    end
+    while job.idx<=#job.tracks do
+      local tr=job.tracks[job.idx]
+      job.idx=job.idx+1
+      if r.ValidatePtr2(0,tr,"MediaTrack*") then
+        local result=slayer_fx.queue_track_print(job,tr)
+        if result=="skipped" then
+          job.skipped=job.skipped+1
+        elseif result=="queued" then
+          status=string.format("Assign + FX %d/%d — STOP ALL cancels",
+            math.min(job.idx-1,#job.tracks),#job.tracks)
+          return
+        end
+      end
+    end
+  end
+
+  slayer_fx.assign_lanes(job)
+  slayer_fx.apply_assign_result(job)
+  slayer_fx.finish_job(job,false)
+end
+
+local function stop_all_voices(set_status, cancel_import)
   -- RS5K one-shots keep ringing after their short trigger note has ended, so a
   -- normal MIDI note-off is not a reliable panic. Briefly taking only the managed
   -- sampler offline resets its active voices while leaving the playback track and
   -- any user FX after RS5K untouched. The loaded FILE0 assignment remains in place.
+  -- CHOKE / a new TRIGGER must not abort an in-progress assign. STOP ALL and
+  -- CLEAR LANES pass cancel_import so the user can kill the whole pipeline.
+  local cancelled=cancel_import and slayer_fx.cancel_job()
   pending_trigger=nil
   pending_ack=nil
   local stopped=0
@@ -2095,13 +2440,17 @@ local function stop_all_voices(set_status)
     end
   end
   if set_status ~= false then
-    status=stopped>0 and "Stopped all S-Layer voices" or "No S-Layer voices to stop"
+    if cancelled then
+      status=stopped>0 and "Stopped S-Layer voices and cancelled assign" or "Cancelled assign pipeline"
+    else
+      status=stopped>0 and "Stopped all S-Layer voices" or "No S-Layer voices to stop"
+    end
   end
   return stopped
 end
 
 local function clear_lane_sources()
-  stop_all_voices(false)
+  stop_all_voices(false, true)
   local layers=scenes[selected_scene].layers
   for li=1,NUM_LAYERS do
     local L=layers[li]
@@ -2307,16 +2656,27 @@ local function dispatch_pending_trigger()
   r.gmem_attach(GMEM_NAME)
   -- Told here rather than in trigger(): this is the frame the note actually
   -- goes out on, so an automatic take does not open on the loading window.
-  -- Auto recording belongs only to a fresh randomized/new trigger. LAST TRIGGER
-  -- is a diagnostic replay and must never open a new automatic take.
-  if recorder and not pending_trigger.bypass_random then
-    local skip_auto = suppress_next_recorder_auto
-      and type(recorder.auto_enabled)=="function" and recorder:auto_enabled()
-    if skip_auto then
-      suppress_next_recorder_auto=false
-    else
-      local ok,err=pcall(recorder.signal_trigger,recorder)
-      if not ok then status="Recorder trigger error: "..tostring(err) end
+  -- Snapshot at fire time: a normal TRIGGER always follows. LAST TRIGGER
+  -- follows only when REC LAST is on. When it is off, pause/close the open
+  -- follow take first so the replay cannot land in a session that is still
+  -- capturing from the previous TRIGGER.
+  local is_last=pending_trigger.last_trigger==true
+  local follow_recorder=pending_trigger.follow_recorder
+  if follow_recorder==nil then
+    follow_recorder=(not is_last) or last_trigger_follow
+  end
+  if recorder then
+    if follow_recorder then
+      local skip_auto = suppress_next_recorder_auto
+        and type(recorder.auto_enabled)=="function" and recorder:auto_enabled()
+      if skip_auto then
+        suppress_next_recorder_auto=false
+      else
+        local ok,err=pcall(recorder.signal_trigger,recorder)
+        if not ok then status="Recorder trigger error: "..tostring(err) end
+      end
+    elseif is_last and type(recorder.skip_follow)=="function" then
+      pcall(recorder.skip_follow,recorder)
     end
   end
   -- Recorder calls temporarily borrow gmem. Re-attach defensively even when the
@@ -2564,7 +2924,9 @@ local function trigger(velocity, replay_shot)
   local wait=(swaps>0) and math.min(PRE_ROLL_BASE+PRE_ROLL_PER_SWAP*swaps,PRE_ROLL_MAX) or PRE_ROLL_NONE
   pending_trigger={
     when=r.time_precise()+wait, velocity=velocity or 110, layers=fire, visuals=visuals, count=count,
-    chosen=chosen, bypass_random=bypass_random
+    chosen=chosen, bypass_random=bypass_random,
+    last_trigger=bypass_random,
+    follow_recorder=(not bypass_random) or last_trigger_follow,
   }
   if bypass_random then
     status=swaps>0
@@ -3092,9 +3454,21 @@ local function draw_main()
     r.ImGui_SetTooltip(ctx,"Replay the exact previous shot, or the rack most recently restored from the Recorder. Bypasses GLOBAL TRIGGER RANDOM and every lane's RND item selection so the same sound can be diagnosed repeatedly. Shortcut: T")
   end
   r.ImGui_SameLine(ctx)
-  if r.ImGui_Button(ctx,"STOP ALL",92,34) then stop_all_voices(true) end
+  local lf_changed,lf_on=r.ImGui_Checkbox(ctx,"REC LAST",last_trigger_follow)
+  if lf_changed then
+    last_trigger_follow=lf_on and true or false
+    mark_state_dirty()
+    status=last_trigger_follow
+      and "REC LAST on — LAST TRIGGER will follow Auto / Signal Session"
+      or "REC LAST off — LAST TRIGGER will not be recorded"
+  end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"Immediately stops every currently sounding S-Layer voice and cancels any trigger waiting to fire")
+    r.ImGui_SetTooltip(ctx,"On: LAST TRIGGER / T follows Auto and Signal Session the same way TRIGGER does\nOff: LAST TRIGGER is diagnostic only. An open Signal Session is paused, and an open Auto take is closed, so the replay is not recorded.")
+  end
+  r.ImGui_SameLine(ctx)
+  if r.ImGui_Button(ctx,"STOP ALL",92,34) then stop_all_voices(true, true) end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"Immediately stops every currently sounding S-Layer voice, cancels any trigger waiting to fire, and aborts ASSIGN / ASSIGN + FX if either is still importing")
   end
   r.ImGui_SameLine(ctx)
   local chk,chv=r.ImGui_Checkbox(ctx,"CHOKE",choke)
@@ -3104,29 +3478,56 @@ local function draw_main()
   end
   r.ImGui_SameLine(ctx)
   local nsel=#selected_source_tracks()
-  if r.ImGui_Button(ctx,string.format("ASSIGN SELECTED (%d)##assign",nsel)) then
-    assign_selected_tracks()
+  local job=slayer_fx.job
+  local assign_label=job and not job.apply_fx
+    and "ASSIGNING…##assign"
+    or string.format("ASSIGN SELECTED (%d)##assign",nsel)
+  if r.ImGui_Button(ctx,assign_label) then
+    if not job then assign_selected_tracks() end
   end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"Fills the free lanes from the top with the tracks selected in REAPER,\nin the order they appear in the project.\n\nSelect the tracks, press this once, and skip the per-lane menus")
+    r.ImGui_SetTooltip(ctx,"Fills the free lanes from the top with the tracks selected in REAPER,\nin the order they appear in the project.\n\nSelect the tracks, press this once, and skip the per-lane menus.\nSTOP ALL cancels the import if it is still running.")
   end
   r.ImGui_SameLine(ctx)
-  if r.ImGui_Button(ctx,string.format("ASSIGN + FX (%d)##assignfx",nsel)) then
-    assign_selected_tracks({apply_fx=true})
+  local fx_label
+  if job and job.apply_fx then
+    fx_label=string.format("ASSIGN + FX %d/%d##assignfx",
+      math.min(math.max(0,job.idx-1),#job.tracks),#job.tracks)
+  else
+    fx_label=string.format("ASSIGN + FX (%d)##assignfx",nsel)
+  end
+  if r.ImGui_Button(ctx,fx_label) then
+    if not job then assign_selected_tracks({apply_fx=true}) end
   end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
-    r.ImGui_SetTooltip(ctx,"Same as ASSIGN SELECTED, but first prints each track's enabled FX\nchain onto its audio items.\n\nEach item keeps the original take plus one FX take. Using this again\nreplaces that FX take only on tracks whose FX settings changed, and\nstill reprints those tracks if they are already assigned.\n\nTracks with no enabled FX, or no audio items, skip the print and\nassign with the original files.")
+    r.ImGui_SetTooltip(ctx,"Same as ASSIGN SELECTED, but first prints each track's enabled FX\nchain onto its audio items.\n\nEach item keeps the original take plus one FX take. Using this again\nreplaces that FX take only on tracks whose FX settings changed, and\nstill reprints those tracks if they are already assigned.\n\nTracks with no enabled FX, or no audio items, skip the print and\nassign with the original files.\n\nPrints one track at a time so STOP ALL can abort the pipeline.")
   end
   r.ImGui_SameLine(ctx)
   if r.ImGui_Button(ctx,"CLEAR LANES##clear") then clear_lane_sources() end
   if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
     r.ImGui_SetTooltip(ctx,"Stops all S-Layer voices, then unassigns the source track on all "..NUM_LAYERS.." lanes.\nEverything else about the lane is left alone")
   end
+  r.ImGui_SameLine(ctx)
+  if r.ImGui_Button(ctx,"TAKE 1##take1",70,34) then
+    slayer_fx.run_helper("ADFX_Helper; set selected items to take 1.lua",
+      "Set selected items to Take 1")
+  end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"Set Take 1 active on every selected item and crop away the other takes")
+  end
+  r.ImGui_SameLine(ctx)
+  if r.ImGui_Button(ctx,"+2 SEC##add2s",70,34) then
+    slayer_fx.run_helper("ADFX_Helper; add 2 seconds to selected items.lua",
+      "Added 2 seconds to selected items")
+  end
+  if r.ImGui_SetTooltip and r.ImGui_IsItemHovered and r.ImGui_IsItemHovered(ctx) then
+    r.ImGui_SetTooltip(ctx,"Add 2 seconds to the end of every selected item and push following items on the same track so they do not overlap")
+  end
 
   -- Branding shares the transport row but is separated enough that it never
   -- reads as another control. The transparent PNG keeps the dark UI visible.
   if adfx_logo then
-    r.ImGui_SameLine(ctx,0,58)
+    r.ImGui_SameLine(ctx,0,24)
     draw_adfx_logo()
   end
 
@@ -3297,6 +3698,7 @@ do
       shutdown = function() end,
       consume_space = function() return false end,
       signal_trigger = function() end,
+      skip_follow = function() end,
       tick = function() end,
       auto_enabled = function() return false end,
       signal_enabled = function() return false end,
@@ -3378,6 +3780,8 @@ local function loop()
         r.ImGui_Text(ctx,"Select tracks in REAPER and press ASSIGN SELECTED to fill the free lanes in track order.")
         r.ImGui_Text(ctx,"ASSIGN + FX prints each track's enabled FX chain onto its items first, then assigns.")
         r.ImGui_Text(ctx,"ASSIGN + FX reprints only tracks whose FX settings changed, including already-assigned tracks.")
+        r.ImGui_Text(ctx,"TAKE 1 and +2 SEC run the matching ADFX item helpers on the current arrange selection.")
+        r.ImGui_Text(ctx,"STOP ALL also cancels ASSIGN / ASSIGN + FX while either is still importing.")
         r.ImGui_Text(ctx,"Each item keeps the original take plus one FX take; a later print replaces that FX take.")
         r.ImGui_Text(ctx,"The per-lane FX button toggles that source between the original take and the printed FX take.")
         r.ImGui_Text(ctx,"GLOBAL TRIGGER RANDOM FX independently turns each printed FX take on or off per TRIGGER.")
@@ -3393,6 +3797,7 @@ local function loop()
         r.ImGui_Text(ctx,"RESET puts one column, or every column, back to a fresh layer's values.")
         r.ImGui_Text(ctx,"Space auditions unless the recorder timeline owns a selection; then Space plays/stops that recorder selection.")
         r.ImGui_Text(ctx,"T replays the exact last trigger with all randomization bypassed; current Mute/Solo still apply.")
+        r.ImGui_Text(ctx,"REC LAST (on by default) lets LAST TRIGGER follow Auto and Signal Session; uncheck it for a silent diagnostic replay.")
         r.ImGui_Text(ctx,"Double-click the recording to play from there; then Space stops it.")
         r.ImGui_Text(ctx,"Right-click a point in the recording to restore the rack that made that sound, in a spare scene.")
         r.ImGui_Text(ctx,"Granular/stretch DSP is not included.")
@@ -3451,6 +3856,11 @@ local function loop()
     if recorder and type(recorder.tick)=="function" then recorder:tick() end
   end
   update_recorder_capture_status()
+  local pipe_ok,pipe_err=pcall(slayer_fx.tick_pipeline)
+  if not pipe_ok then
+    status="Assign pipeline error — recorder left running"
+    if type(pipe_err)=="string" then status=status..": "..pipe_err end
+  end
   dispatch_pending_trigger()
   verify_trigger_ack()
   apply_runtime(false)
@@ -3460,5 +3870,10 @@ local function loop()
   r.defer(loop)
 end
 
-r.atexit(function() save_state(); recorder:shutdown() end)
+r.atexit(function()
+  slayer_fx.cancel_job()
+  slayer_fx.release_offlineinact()
+  save_state()
+  recorder:shutdown()
+end)
 loop()
